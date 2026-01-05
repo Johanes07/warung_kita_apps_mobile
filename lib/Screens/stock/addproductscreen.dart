@@ -5,9 +5,6 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:warung_kita/db/database_helper.dart';
 import 'package:intl/intl.dart';
 
-/// =============================
-/// Custom Formatter Rupiah
-/// =============================
 class CurrencyInputFormatter extends TextInputFormatter {
   final NumberFormat _formatter = NumberFormat.currency(
     locale: 'id_ID',
@@ -24,10 +21,7 @@ class CurrencyInputFormatter extends TextInputFormatter {
       return newValue.copyWith(text: '');
     }
 
-    // Hanya angka
     String digitsOnly = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
-
-    // Format Rupiah
     final formatted = _formatter.format(int.parse(digitsOnly));
 
     return TextEditingValue(
@@ -37,9 +31,6 @@ class CurrencyInputFormatter extends TextInputFormatter {
   }
 }
 
-/// =============================
-/// Halaman Tambah Produk
-/// =============================
 class AddProductScreen extends StatefulWidget {
   const AddProductScreen({super.key});
 
@@ -54,18 +45,19 @@ class _AddProductScreenState extends State<AddProductScreen> {
   final TextEditingController barcodeController = TextEditingController();
   final TextEditingController nameController = TextEditingController();
   final TextEditingController priceRetailController = TextEditingController();
-  final TextEditingController priceWholesaleController = TextEditingController();
-  final TextEditingController stockController = TextEditingController();
+  final TextEditingController priceWholesaleController =
+      TextEditingController();
+  final TextEditingController stockRetailController =
+      TextEditingController(); // ✅ Stok Eceran
+  final TextEditingController stockWholesaleController =
+      TextEditingController(); // ✅ Stok Grosir
 
   bool isSaving = false;
 
-  /// Pindah ke halaman scan barcode
   Future<void> _scanBarcode() async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => const BarcodeScannerScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const BarcodeScannerScreen()),
     );
 
     if (result != null && result is String) {
@@ -75,7 +67,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
     }
   }
 
-  /// Simpan Produk ke Database
   Future<void> _saveProduct() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -84,14 +75,22 @@ class _AddProductScreenState extends State<AddProductScreen> {
     try {
       final db = await dbHelper.database;
 
+      int stockRetail = int.parse(stockRetailController.text);
+      int stockWholesale = int.parse(stockWholesaleController.text);
+      int totalStock = stockRetail + stockWholesale;
+
       await db.insert('products', {
         'name': nameController.text.trim(),
         'barcode': barcodeController.text.trim(),
-        'price_retail':
-            int.parse(priceRetailController.text.replaceAll('.', '')), // hapus titik
-        'price_wholesale':
-            int.parse(priceWholesaleController.text.replaceAll('.', '')), // hapus titik
-        'stock': int.parse(stockController.text),
+        'price_retail': int.parse(
+          priceRetailController.text.replaceAll('.', ''),
+        ),
+        'price_wholesale': int.parse(
+          priceWholesaleController.text.replaceAll('.', ''),
+        ),
+        'stock': totalStock, // Total stok
+        'stock_retail': stockRetail, // ✅ Stok eceran
+        'stock_wholesale': stockWholesale, // ✅ Stok grosir
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -100,15 +99,14 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
       Navigator.pop(context, true);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Gagal menyimpan produk: $e")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Gagal menyimpan produk: $e")));
     } finally {
       setState(() => isSaving = false);
     }
   }
 
-  /// Widget untuk TextField
   Widget _buildTextField({
     required String label,
     required TextEditingController controller,
@@ -183,9 +181,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       onPressed: _scanBarcode,
                       color: Colors.blueAccent,
                     ),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly, // hanya angka
-                    ],
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   ),
                   const SizedBox(height: 18),
 
@@ -207,8 +203,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
                     validator: (value) =>
                         value!.isEmpty ? "Harga eceran wajib diisi" : null,
                     inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly, // hanya angka
-                      CurrencyInputFormatter(), // format otomatis Rupiah
+                      FilteringTextInputFormatter.digitsOnly,
+                      CurrencyInputFormatter(),
                     ],
                   ),
                   const SizedBox(height: 18),
@@ -221,22 +217,31 @@ class _AddProductScreenState extends State<AddProductScreen> {
                     validator: (value) =>
                         value!.isEmpty ? "Harga grosir wajib diisi" : null,
                     inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly, // hanya angka
-                      CurrencyInputFormatter(), // format otomatis Rupiah
+                      FilteringTextInputFormatter.digitsOnly,
+                      CurrencyInputFormatter(),
                     ],
                   ),
                   const SizedBox(height: 18),
 
-                  /// Stok Awal
+                  /// ✅ Stok Eceran
                   _buildTextField(
-                    label: "Stok Awal",
-                    controller: stockController,
+                    label: "Stok Eceran",
+                    controller: stockRetailController,
                     keyboardType: TextInputType.number,
                     validator: (value) =>
-                        value!.isEmpty ? "Stok awal wajib diisi" : null,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly, // hanya angka
-                    ],
+                        value!.isEmpty ? "Stok eceran wajib diisi" : null,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  ),
+                  const SizedBox(height: 18),
+
+                  /// ✅ Stok Grosir
+                  _buildTextField(
+                    label: "Stok Grosir",
+                    controller: stockWholesaleController,
+                    keyboardType: TextInputType.number,
+                    validator: (value) =>
+                        value!.isEmpty ? "Stok grosir wajib diisi" : null,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   ),
                   const SizedBox(height: 28),
 
@@ -281,9 +286,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
   }
 }
 
-/// =============================
-/// Halaman Scanner Barcode
-/// =============================
 class BarcodeScannerScreen extends StatefulWidget {
   const BarcodeScannerScreen({super.key});
 
@@ -292,7 +294,7 @@ class BarcodeScannerScreen extends StatefulWidget {
 }
 
 class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
-  bool _isBarcodeDetected = false; // Cegah multiple detect
+  bool _isBarcodeDetected = false;
 
   @override
   Widget build(BuildContext context) {
@@ -313,9 +315,8 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
                 _isBarcodeDetected = true;
               });
 
-              /// Delay sedikit agar tidak glitch
               Future.delayed(const Duration(milliseconds: 300), () {
-                Navigator.pop(context, value); // kirim hasil ke AddProduct
+                Navigator.pop(context, value);
               });
             }
           }
