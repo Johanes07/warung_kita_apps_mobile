@@ -23,7 +23,7 @@ class CashierScreen extends StatefulWidget {
 
 class _CashierScreenState extends State<CashierScreen> {
   final dbHelper = DatabaseHelper.instance;
-  final printerService = PrinterService(); // ✅ Gunakan singleton
+  final printerService = PrinterService();
   final formatCurrency = NumberFormat.currency(
     locale: 'id_ID',
     symbol: 'Rp ',
@@ -38,18 +38,31 @@ class _CashierScreenState extends State<CashierScreen> {
   int totalAmount = 0;
   bool isLoading = false;
 
+  // ✅ TAMBAHAN: untuk menyimpan nomor urut harian
+  int? dailyTransactionNumber;
+
   @override
   void initState() {
     super.initState();
     _loadProducts();
 
-    // ✅ Jika mode edit, load cart dari existingCart
     if (widget.editMode && widget.existingCart != null) {
       _loadExistingCart();
+      // ✅ Load nomor urut harian saat edit mode
+      _loadDailyNumber();
     }
   }
 
-  /// ✅ Load cart dari transaksi yang sudah ada
+  // ✅ TAMBAHAN: Load nomor transaksi harian
+  Future<void> _loadDailyNumber() async {
+    if (widget.transactionId != null) {
+      final number = await _getDailyTransactionNumber(widget.transactionId!);
+      setState(() {
+        dailyTransactionNumber = number;
+      });
+    }
+  }
+
   void _loadExistingCart() {
     setState(() {
       cart = widget.existingCart!.map((item) {
@@ -67,9 +80,37 @@ class _CashierScreenState extends State<CashierScreen> {
     });
   }
 
-  /// ✅ Validasi saat keluar halaman (Simplified - tanpa cek printer)
+  /// ✅ MENGHITUNG NOMOR TRANSAKSI PER HARI
+  Future<int> _getDailyTransactionNumber(int transactionId) async {
+    final db = await dbHelper.database;
+
+    // Ambil created_at dari transaksi
+    final trxResult = await db.query(
+      'transactions',
+      where: 'id = ?',
+      whereArgs: [transactionId],
+    );
+
+    if (trxResult.isEmpty) return transactionId;
+
+    String transactionDate = DateFormat(
+      'yyyy-MM-dd',
+    ).format(DateTime.parse(trxResult.first['created_at'].toString()));
+
+    // Hitung berapa transaksi di hari yang sama sebelum transaksi ini
+    final result = await db.rawQuery(
+      '''
+      SELECT COUNT(*) as count FROM transactions
+      WHERE DATE(created_at) = ? AND id <= ?
+      ORDER BY created_at ASC
+    ''',
+      [transactionDate, transactionId],
+    );
+
+    return (result.first['count'] ?? 0) as int;
+  }
+
   Future<bool> _onWillPop() async {
-    // ✅ Jika mode edit dan ada perubahan di cart
     if (widget.editMode) {
       final hasChanges = cart.isNotEmpty;
       if (hasChanges) {
@@ -179,7 +220,6 @@ class _CashierScreenState extends State<CashierScreen> {
               Text(product['name'], style: GoogleFonts.poppins(fontSize: 16)),
               const SizedBox(height: 12),
 
-              /// Opsi Harga Eceran
               ListTile(
                 tileColor: stockRetail > 0 ? Colors.grey[100] : Colors.red[50],
                 shape: RoundedRectangleBorder(
@@ -233,7 +273,6 @@ class _CashierScreenState extends State<CashierScreen> {
               ),
               const SizedBox(height: 8),
 
-              /// Opsi Harga Grosir
               ListTile(
                 tileColor: stockWholesale > 0
                     ? Colors.grey[100]
@@ -362,7 +401,7 @@ class _CashierScreenState extends State<CashierScreen> {
     });
   }
 
-  /// ✅ Print Receipt - Menggunakan PrinterService
+  /// ✅ Print Receipt - Dengan nomor urut per hari
   Future<void> _printReceiptBluetooth(
     int transactionId,
     List<Map<String, dynamic>> items,
@@ -382,9 +421,12 @@ class _CashierScreenState extends State<CashierScreen> {
     }
 
     try {
+      // ✅ Dapatkan nomor urut transaksi per hari
+      final dailyNumber = await _getDailyTransactionNumber(transactionId);
+
       printerService.printer.printNewLine();
       printerService.printer.printCustom("TOKO RIZKI", 3, 1);
-      printerService.printer.printCustom("Transaksi #$transactionId", 1, 1);
+      printerService.printer.printCustom("Transaksi #$dailyNumber", 1, 1);
       printerService.printer.printCustom(
         DateFormat('dd MMM yyyy, HH:mm').format(DateTime.now()),
         1,
@@ -424,7 +466,6 @@ class _CashierScreenState extends State<CashierScreen> {
         1,
       );
 
-      // ✅ Tambahkan label jika edit mode
       if (widget.editMode) {
         printerService.printer.printCustom("--- TRANSAKSI DIUPDATE ---", 0, 1);
       }
@@ -455,9 +496,7 @@ class _CashierScreenState extends State<CashierScreen> {
       int transactionId = widget.transactionId ?? 0;
 
       await db.transaction((txn) async {
-        // ✅ Jika mode edit, kembalikan stok lama terlebih dahulu
         if (widget.editMode && widget.transactionId != null) {
-          // Ambil item transaksi lama
           final oldItems = await txn.rawQuery(
             '''
             SELECT * FROM transaction_items WHERE transaction_id = ?
@@ -465,7 +504,6 @@ class _CashierScreenState extends State<CashierScreen> {
             [widget.transactionId],
           );
 
-          // Kembalikan stok produk lama
           for (var oldItem in oldItems) {
             String oldPriceType =
                 (oldItem['price_type']?.toString() ?? 'retail');
@@ -487,14 +525,12 @@ class _CashierScreenState extends State<CashierScreen> {
             }
           }
 
-          // Hapus transaction_items lama
           await txn.delete(
             'transaction_items',
             where: 'transaction_id = ?',
             whereArgs: [widget.transactionId],
           );
 
-          // Update transaksi dengan total baru
           await txn.update(
             'transactions',
             {'total_amount': totalAmount},
@@ -502,7 +538,6 @@ class _CashierScreenState extends State<CashierScreen> {
             whereArgs: [widget.transactionId],
           );
         } else {
-          // Mode baru - create transaksi baru
           transactionId = await txn.insert('transactions', {
             'user_id': userId,
             'total_amount': totalAmount,
@@ -510,7 +545,6 @@ class _CashierScreenState extends State<CashierScreen> {
           });
         }
 
-        // Insert transaction_items baru dan kurangi stok
         for (var item in cart) {
           String priceType = item['price_type']?.toString() ?? 'retail';
 
@@ -522,7 +556,6 @@ class _CashierScreenState extends State<CashierScreen> {
             'price_type': priceType,
           });
 
-          // Kurangi stok
           if (priceType == 'retail') {
             await txn.rawUpdate(
               'UPDATE products SET stock = stock - ?, stock_retail = stock_retail - ? WHERE id = ?',
@@ -555,7 +588,12 @@ class _CashierScreenState extends State<CashierScreen> {
     }
   }
 
-  void _showTransactionSuccessDialog(int transactionId) {
+  void _showTransactionSuccessDialog(int transactionId) async {
+    // ✅ Dapatkan nomor urut per hari untuk ditampilkan
+    final dailyNumber = await _getDailyTransactionNumber(transactionId);
+
+    if (!mounted) return;
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -576,8 +614,8 @@ class _CashierScreenState extends State<CashierScreen> {
         ),
         content: Text(
           widget.editMode
-              ? "Transaksi #$transactionId berhasil diupdate!"
-              : "Struk berhasil dicetak dan transaksi tersimpan.",
+              ? "Transaksi #$dailyNumber berhasil diupdate!"
+              : "Transaksi #$dailyNumber berhasil! Struk telah dicetak.",
           style: GoogleFonts.poppins(),
           textAlign: TextAlign.center,
         ),
@@ -585,12 +623,9 @@ class _CashierScreenState extends State<CashierScreen> {
           Center(
             child: ElevatedButton(
               onPressed: () {
-                Navigator.pop(context); // Tutup dialog
+                Navigator.pop(context);
                 if (widget.editMode) {
-                  Navigator.pop(
-                    context,
-                    true,
-                  ); // Kembali ke IncomeScreen dengan result=true
+                  Navigator.pop(context, true);
                 }
               },
               style: ElevatedButton.styleFrom(
@@ -615,18 +650,33 @@ class _CashierScreenState extends State<CashierScreen> {
         backgroundColor: Colors.grey.shade100,
         appBar: AppBar(
           elevation: 0,
-          title: Text(
-            widget.editMode
-                ? "Edit Transaksi #${widget.transactionId}"
-                : "Kasir",
-            style: GoogleFonts.poppins(
-              fontWeight: FontWeight.w600,
-              color: Colors.black,
-            ),
-          ),
+          title: widget.editMode
+              ? FutureBuilder<int>(
+                  future: dailyTransactionNumber != null
+                      ? Future.value(dailyTransactionNumber)
+                      : (widget.transactionId != null
+                            ? _getDailyTransactionNumber(widget.transactionId!)
+                            : Future.value(0)),
+                  builder: (context, snapshot) {
+                    final number = snapshot.data ?? widget.transactionId ?? 0;
+                    return Text(
+                      "Edit Transaksi #$number",
+                      style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black,
+                      ),
+                    );
+                  },
+                )
+              : Text(
+                  "Kasir",
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black,
+                  ),
+                ),
           backgroundColor: Colors.transparent,
           actions: [
-            // ✅ Status printer (tanpa popup menu)
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: Center(
@@ -655,7 +705,6 @@ class _CashierScreenState extends State<CashierScreen> {
         ),
         body: Column(
           children: [
-            // ✅ Banner mode edit
             if (widget.editMode)
               Container(
                 color: Colors.orange.shade100,
@@ -665,20 +714,32 @@ class _CashierScreenState extends State<CashierScreen> {
                     const Icon(Icons.edit, color: Colors.orange, size: 20),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        "Mode Edit: Ubah produk transaksi #${widget.transactionId}",
-                        style: GoogleFonts.poppins(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.orange.shade900,
-                        ),
+                      child: FutureBuilder<int>(
+                        future: dailyTransactionNumber != null
+                            ? Future.value(dailyTransactionNumber)
+                            : (widget.transactionId != null
+                                  ? _getDailyTransactionNumber(
+                                      widget.transactionId!,
+                                    )
+                                  : Future.value(0)),
+                        builder: (context, snapshot) {
+                          final number =
+                              snapshot.data ?? widget.transactionId ?? 0;
+                          return Text(
+                            "Mode Edit: Ubah produk transaksi #$number",
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.orange.shade900,
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ],
                 ),
               ),
 
-            // ✅ Banner status printer
             if (!printerService.connected)
               Container(
                 color: Colors.red.shade50,
@@ -834,144 +895,203 @@ class _CashierScreenState extends State<CashierScreen> {
                       },
                     ),
             ),
+
             Container(
-              padding: const EdgeInsets.all(16),
-              color: Colors.white,
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.4,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, -2),
+                  ),
+                ],
+              ),
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   if (cart.isNotEmpty)
-                    Column(
-                      children: [
-                        ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: cart.length,
-                          itemBuilder: (context, index) {
-                            final item = cart[index];
-                            final priceType = item['price_type'] ?? 'retail';
-
-                            return ListTile(
-                              title: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      item['name'],
-                                      style: GoogleFonts.poppins(),
-                                    ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: priceType == 'retail'
-                                          ? Colors.green.withOpacity(0.2)
-                                          : Colors.orange.withOpacity(0.2),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      priceType == 'retail' ? 'E' : 'G',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                        color: priceType == 'retail'
-                                            ? Colors.green
-                                            : Colors.orange,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              subtitle: Text(
-                                formatCurrency.format(item['price']),
-                                style: GoogleFonts.poppins(fontSize: 12),
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.remove_circle_outline,
-                                    ),
-                                    onPressed: () => _updateQty(index, -1),
-                                  ),
-                                  Text(
-                                    item['qty'].toString(),
-                                    style: GoogleFonts.poppins(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.add_circle_outline),
-                                    onPressed: () => _updateQty(index, 1),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.delete,
-                                      color: Colors.red,
-                                    ),
-                                    onPressed: () => _removeItem(index),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                        const Divider(),
-                      ],
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[300],
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            "${cart.length} item di keranjang",
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        "Total",
-                        style: GoogleFonts.poppins(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                        ),
+
+                  if (cart.isNotEmpty)
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: cart.length,
+                        itemBuilder: (context, index) {
+                          final item = cart[index];
+                          final priceType = item['price_type'] ?? 'retail';
+
+                          return ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 4,
+                            ),
+                            title: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    item['name'],
+                                    style: GoogleFonts.poppins(fontSize: 14),
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: priceType == 'retail'
+                                        ? Colors.green.withOpacity(0.2)
+                                        : Colors.orange.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    priceType == 'retail' ? 'E' : 'G',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: priceType == 'retail'
+                                          ? Colors.green
+                                          : Colors.orange,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            subtitle: Text(
+                              formatCurrency.format(item['price']),
+                              style: GoogleFonts.poppins(fontSize: 12),
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.remove_circle_outline,
+                                    size: 20,
+                                  ),
+                                  onPressed: () => _updateQty(index, -1),
+                                ),
+                                Text(
+                                  item['qty'].toString(),
+                                  style: GoogleFonts.poppins(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.add_circle_outline,
+                                    size: 20,
+                                  ),
+                                  onPressed: () => _updateQty(index, 1),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.delete,
+                                    color: Colors.red,
+                                    size: 20,
+                                  ),
+                                  onPressed: () => _removeItem(index),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
                       ),
-                      Text(
-                        formatCurrency.format(totalAmount),
-                        style: GoogleFonts.poppins(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blueAccent,
+                    ),
+
+                  if (cart.isNotEmpty) const Divider(height: 1),
+
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              "Total",
+                              style: GoogleFonts.poppins(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Text(
+                              formatCurrency.format(totalAmount),
+                              style: GoogleFonts.poppins(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blueAccent,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton.icon(
-                      icon: isLoading
-                          ? const CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            )
-                          : Icon(widget.editMode ? Icons.save : Icons.payment),
-                      label: Text(
-                        isLoading
-                            ? "Memproses..."
-                            : (widget.editMode
-                                  ? "Simpan Perubahan"
-                                  : "Checkout"),
-                        style: GoogleFonts.poppins(
-                          fontSize: 16,
-                          color: Colors.white,
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: ElevatedButton.icon(
+                            icon: isLoading
+                                ? const CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  )
+                                : Icon(
+                                    widget.editMode
+                                        ? Icons.save
+                                        : Icons.payment,
+                                  ),
+                            label: Text(
+                              isLoading
+                                  ? "Memproses..."
+                                  : (widget.editMode
+                                        ? "Simpan Perubahan"
+                                        : "Checkout"),
+                              style: GoogleFonts.poppins(
+                                fontSize: 16,
+                                color: Colors.white,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: widget.editMode
+                                  ? Colors.orange
+                                  : Colors.blueAccent,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            onPressed: isLoading ? null : _checkout,
+                          ),
                         ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: widget.editMode
-                            ? Colors.orange
-                            : Colors.blueAccent,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      onPressed: isLoading ? null : _checkout,
+                      ],
                     ),
                   ),
                 ],

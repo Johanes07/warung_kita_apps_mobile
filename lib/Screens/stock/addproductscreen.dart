@@ -47,12 +47,22 @@ class _AddProductScreenState extends State<AddProductScreen> {
   final TextEditingController priceRetailController = TextEditingController();
   final TextEditingController priceWholesaleController =
       TextEditingController();
-  final TextEditingController stockRetailController =
-      TextEditingController(); // ✅ Stok Eceran
+  final TextEditingController stockRetailController = TextEditingController();
   final TextEditingController stockWholesaleController =
-      TextEditingController(); // ✅ Stok Grosir
+      TextEditingController();
 
   bool isSaving = false;
+
+  @override
+  void dispose() {
+    barcodeController.dispose();
+    nameController.dispose();
+    priceRetailController.dispose();
+    priceWholesaleController.dispose();
+    stockRetailController.dispose();
+    stockWholesaleController.dispose();
+    super.dispose();
+  }
 
   Future<void> _scanBarcode() async {
     final result = await Navigator.push(
@@ -88,22 +98,27 @@ class _AddProductScreenState extends State<AddProductScreen> {
         'price_wholesale': int.parse(
           priceWholesaleController.text.replaceAll('.', ''),
         ),
-        'stock': totalStock, // Total stok
-        'stock_retail': stockRetail, // ✅ Stok eceran
-        'stock_wholesale': stockWholesale, // ✅ Stok grosir
+        'stock': totalStock,
+        'stock_retail': stockRetail,
+        'stock_wholesale': stockWholesale,
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Produk berhasil ditambahkan")),
-      );
-
-      Navigator.pop(context, true);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Produk berhasil ditambahkan")),
+        );
+        Navigator.pop(context, true);
+      }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Gagal menyimpan produk: $e")));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Gagal menyimpan produk: $e")));
+      }
     } finally {
-      setState(() => isSaving = false);
+      if (mounted) {
+        setState(() => isSaving = false);
+      }
     }
   }
 
@@ -112,28 +127,45 @@ class _AddProductScreenState extends State<AddProductScreen> {
     required TextEditingController controller,
     required TextInputType keyboardType,
     required String? Function(String?) validator,
+    required IconData icon,
     bool readOnly = false,
     Widget? suffixIcon,
     List<TextInputFormatter>? inputFormatters,
+    String? prefix,
   }) {
     return TextFormField(
       controller: controller,
       readOnly: readOnly,
       keyboardType: keyboardType,
       inputFormatters: inputFormatters,
+      style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w500),
       decoration: InputDecoration(
         labelText: label,
-        floatingLabelBehavior: FloatingLabelBehavior.auto,
+        labelStyle: GoogleFonts.poppins(fontSize: 14),
+        prefixIcon: Icon(icon, color: Colors.blueAccent),
+        prefixText: prefix,
+        prefixStyle: GoogleFonts.poppins(
+          fontSize: 15,
+          fontWeight: FontWeight.w500,
+        ),
         suffixIcon: suffixIcon,
         filled: true,
-        fillColor: Colors.grey.shade100,
+        fillColor: Colors.white,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide.none,
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade300),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: Colors.blueAccent, width: 1.5),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.blueAccent, width: 2),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 16,
         ),
       ),
       validator: validator,
@@ -143,37 +175,48 @@ class _AddProductScreenState extends State<AddProductScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade100,
+      backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
         elevation: 0,
         title: Text(
           "Tambah Produk",
           style: GoogleFonts.poppins(
             fontWeight: FontWeight.w600,
-            color: Colors.white,
+            color: Colors.black,
           ),
         ),
-        backgroundColor: Colors.blueAccent,
+        backgroundColor: Colors.transparent,
+        iconTheme: const IconThemeData(color: Colors.black),
+        centerTitle: true,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            image: DecorationImage(
+              image: AssetImage("assets/images/bgwarung2.jpg"),
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
           child: Card(
-            elevation: 8,
+            elevation: 2,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(16),
             ),
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  /// Barcode
+                  // Barcode
                   _buildTextField(
                     label: "Barcode",
                     controller: barcodeController,
                     keyboardType: TextInputType.number,
+                    icon: Icons.qr_code_2,
                     validator: (value) =>
                         value!.isEmpty ? "Barcode wajib diisi" : null,
                     suffixIcon: IconButton(
@@ -183,23 +226,26 @@ class _AddProductScreenState extends State<AddProductScreen> {
                     ),
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 16),
 
-                  /// Nama Produk
+                  // Nama Produk
                   _buildTextField(
                     label: "Nama Produk",
                     controller: nameController,
                     keyboardType: TextInputType.text,
+                    icon: Icons.shopping_bag,
                     validator: (value) =>
                         value!.isEmpty ? "Nama produk wajib diisi" : null,
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 16),
 
-                  /// Harga Eceran
+                  // Harga Eceran
                   _buildTextField(
                     label: "Harga Eceran",
                     controller: priceRetailController,
                     keyboardType: TextInputType.number,
+                    icon: Icons.sell,
+                    prefix: "Rp ",
                     validator: (value) =>
                         value!.isEmpty ? "Harga eceran wajib diisi" : null,
                     inputFormatters: [
@@ -207,13 +253,15 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       CurrencyInputFormatter(),
                     ],
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 16),
 
-                  /// Harga Grosir
+                  // Harga Grosir
                   _buildTextField(
                     label: "Harga Grosir",
                     controller: priceWholesaleController,
                     keyboardType: TextInputType.number,
+                    icon: Icons.local_offer,
+                    prefix: "Rp ",
                     validator: (value) =>
                         value!.isEmpty ? "Harga grosir wajib diisi" : null,
                     inputFormatters: [
@@ -221,33 +269,35 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       CurrencyInputFormatter(),
                     ],
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 16),
 
-                  /// ✅ Stok Eceran
+                  // Stok Eceran
                   _buildTextField(
                     label: "Stok Eceran",
                     controller: stockRetailController,
                     keyboardType: TextInputType.number,
+                    icon: Icons.shopping_basket,
                     validator: (value) =>
                         value!.isEmpty ? "Stok eceran wajib diisi" : null,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 16),
 
-                  /// ✅ Stok Grosir
+                  // Stok Grosir
                   _buildTextField(
                     label: "Stok Grosir",
                     controller: stockWholesaleController,
                     keyboardType: TextInputType.number,
+                    icon: Icons.warehouse,
                     validator: (value) =>
                         value!.isEmpty ? "Stok grosir wajib diisi" : null,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 24),
 
-                  /// Tombol Simpan
+                  // Tombol Simpan
                   SizedBox(
-                    height: 55,
+                    height: 50,
                     child: ElevatedButton.icon(
                       icon: isSaving
                           ? const SizedBox(
@@ -258,7 +308,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                 strokeWidth: 2,
                               ),
                             )
-                          : const Icon(Icons.save),
+                          : const Icon(Icons.save, color: Colors.white),
                       label: Text(
                         isSaving ? "Menyimpan..." : "Simpan Produk",
                         style: GoogleFonts.poppins(
@@ -269,9 +319,12 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.blueAccent,
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: Colors.grey,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(12),
                         ),
+                        elevation: 2,
                       ),
                       onPressed: isSaving ? null : _saveProduct,
                     ),
@@ -300,8 +353,24 @@ class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Scan Barcode"),
-        backgroundColor: Colors.blueAccent,
+        title: Text(
+          "Scan Barcode",
+          style: GoogleFonts.poppins(
+            fontWeight: FontWeight.w600,
+            color: Colors.black,
+          ),
+        ),
+        backgroundColor: Colors.transparent,
+        iconTheme: const IconThemeData(color: Colors.black),
+        centerTitle: true,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            image: DecorationImage(
+              image: AssetImage("assets/images/bgwarung2.jpg"),
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
       ),
       body: MobileScanner(
         onDetect: (BarcodeCapture capture) {

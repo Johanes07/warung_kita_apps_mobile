@@ -47,6 +47,27 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
+  /// ✅ MENGHITUNG NOMOR TRANSAKSI PER HARI
+  Future<int> _getDailyTransactionNumber(Map<String, dynamic> trx) async {
+    final db = await dbHelper.database;
+
+    String transactionDate = DateFormat(
+      'yyyy-MM-dd',
+    ).format(DateTime.parse(trx['created_at'].toString()));
+
+    // Hitung berapa transaksi di hari yang sama sebelum transaksi ini
+    final result = await db.rawQuery(
+      '''
+      SELECT COUNT(*) as count FROM transactions
+      WHERE DATE(created_at) = ? AND id <= ?
+      ORDER BY created_at ASC
+    ''',
+      [transactionDate, trx['id']],
+    );
+
+    return (result.first['count'] ?? 0) as int;
+  }
+
   /// ================= LOAD TRANSAKSI =================
   Future<void> _loadTransactions() async {
     final db = await dbHelper.database;
@@ -65,7 +86,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final listResult = await db.rawQuery('''
       SELECT * FROM transactions 
       $whereClause 
-      ORDER BY created_at DESC
+      ORDER BY created_at ASC
     ''', whereArgs);
 
     setState(() {
@@ -155,11 +176,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
       decimalDigits: 0,
     );
 
-    // ✅ Load semua detail transaksi dengan produknya
+    // ✅ Load semua detail transaksi dengan produknya DAN nomor urut per hari
     List<Map<String, dynamic>> detailedTransactions = [];
     for (var trx in transactions) {
       final items = await _getTransactionItems(trx['id']);
-      detailedTransactions.add({'transaction': trx, 'items': items});
+      final dailyNumber = await _getDailyTransactionNumber(trx);
+      detailedTransactions.add({
+        'transaction': trx,
+        'items': items,
+        'dailyNumber': dailyNumber,
+      });
     }
 
     pdf.addPage(
@@ -220,10 +246,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
           pw.SizedBox(height: 20),
 
-          /// ✅ DETAIL SETIAP TRANSAKSI
+          /// ✅ DETAIL SETIAP TRANSAKSI dengan nomor urut per hari
           ...detailedTransactions.map((data) {
             final trx = data['transaction'];
             final items = data['items'] as List<Map<String, dynamic>>;
+            final dailyNumber = data['dailyNumber'];
 
             return pw.Container(
               margin: const pw.EdgeInsets.only(bottom: 20),
@@ -235,12 +262,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  /// Header Transaksi
+                  /// Header Transaksi dengan nomor urut per hari
                   pw.Row(
                     mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     children: [
                       pw.Text(
-                        "Transaksi #${trx['id']}",
+                        "Transaksi #$dailyNumber",
                         style: pw.TextStyle(
                           fontWeight: pw.FontWeight.bold,
                           fontSize: 12,
@@ -699,7 +726,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
-                                "Laporan PDF akan menampilkan detail lengkap produk yang dibeli di setiap transaksi",
+                                "Laporan PDF akan menampilkan nomor transaksi sesuai urutan per hari dan detail lengkap produk yang dibeli",
                                 style: GoogleFonts.poppins(
                                   fontSize: 12,
                                   color: Colors.blue.shade900,

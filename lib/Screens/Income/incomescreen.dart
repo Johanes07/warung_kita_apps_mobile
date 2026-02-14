@@ -14,7 +14,7 @@ class IncomeScreen extends StatefulWidget {
 
 class _IncomeScreenState extends State<IncomeScreen> {
   final dbHelper = DatabaseHelper.instance;
-  final printerService = PrinterService(); // ✅ Gunakan singleton
+  final printerService = PrinterService();
   final formatCurrency = NumberFormat.currency(
     locale: 'id',
     symbol: 'Rp ',
@@ -102,6 +102,27 @@ class _IncomeScreenState extends State<IncomeScreen> {
     return result;
   }
 
+  /// ✅ MENGHITUNG NOMOR TRANSAKSI PER HARI
+  Future<int> _getDailyTransactionNumber(Map<String, dynamic> trx) async {
+    final db = await dbHelper.database;
+
+    String transactionDate = DateFormat(
+      'yyyy-MM-dd',
+    ).format(DateTime.parse(trx['created_at']));
+
+    // Hitung berapa transaksi di hari yang sama sebelum transaksi ini (termasuk transaksi ini)
+    final result = await db.rawQuery(
+      '''
+      SELECT COUNT(*) as count FROM transactions
+      WHERE DATE(created_at) = ? AND id <= ?
+      ORDER BY created_at ASC
+    ''',
+      [transactionDate, trx['id']],
+    );
+
+    return (result.first['count'] ?? 0) as int;
+  }
+
   Future<void> _pickDateRange() async {
     final DateTimeRange? picked = await showDateRangePicker(
       context: context,
@@ -146,10 +167,11 @@ class _IncomeScreenState extends State<IncomeScreen> {
       );
 
       final items = await _getTransactionItems(trx['id']);
+      final dailyNumber = await _getDailyTransactionNumber(trx);
 
       printerService.printer.printNewLine();
       printerService.printer.printCustom("TOKO RIZKI", 3, 1);
-      printerService.printer.printCustom("Transaksi #${trx['id']}", 1, 1);
+      printerService.printer.printCustom("Transaksi #$dailyNumber", 1, 1);
       printerService.printer.printCustom(
         DateFormat(
           'dd MMM yyyy, HH:mm',
@@ -198,7 +220,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Struk Transaksi #${trx['id']} berhasil dicetak"),
+          content: Text("Struk Transaksi #$dailyNumber berhasil dicetak"),
           backgroundColor: Colors.green,
         ),
       );
@@ -231,7 +253,11 @@ class _IncomeScreenState extends State<IncomeScreen> {
   }
 
   /// ✅ DIALOG AKSI TRANSAKSI (Lihat Detail, Edit, atau Cetak)
-  void _showTransactionActions(Map<String, dynamic> trx) {
+  void _showTransactionActions(Map<String, dynamic> trx) async {
+    final dailyNumber = await _getDailyTransactionNumber(trx);
+
+    if (!mounted) return;
+
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -253,7 +279,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
               ),
               const SizedBox(height: 20),
               Text(
-                "Transaksi #${trx['id']}",
+                "Transaksi #$dailyNumber",
                 style: GoogleFonts.poppins(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -338,83 +364,297 @@ class _IncomeScreenState extends State<IncomeScreen> {
   /// Dialog Detail Transaksi
   void _showTransactionDetail(Map<String, dynamic> trx) async {
     final items = await _getTransactionItems(trx['id']);
+    final dailyNumber = await _getDailyTransactionNumber(trx);
+
+    if (!mounted) return;
 
     showDialog(
       context: context,
       builder: (_) {
-        return AlertDialog(
+        return Dialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(20),
           ),
-          title: Text(
-            "Detail Transaksi #${trx['id']}",
-            style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
-          ),
-          content: items.isEmpty
-              ? const Text("Tidak ada detail belanja")
-              : SizedBox(
-                  width: double.maxFinite,
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: items.length,
-                    itemBuilder: (context, idx) {
-                      final item = items[idx];
-                      final priceType = item['price_type'] ?? 'retail';
-
-                      return ListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        title: Row(
+          elevation: 0,
+          backgroundColor: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Colors.blue.shade600, Colors.blue.shade400],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.receipt_long,
+                          color: Colors.white,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: Text(
-                                item['name'],
-                                style: GoogleFonts.poppins(),
+                            Text(
+                              "Detail Transaksi",
+                              style: GoogleFonts.poppins(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: priceType == 'retail'
-                                    ? Colors.green.withOpacity(0.2)
-                                    : Colors.orange.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                priceType == 'retail' ? 'Eceran' : 'Grosir',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: priceType == 'retail'
-                                      ? Colors.green
-                                      : Colors.orange,
-                                ),
+                            Text(
+                              "#$dailyNumber",
+                              style: GoogleFonts.poppins(
+                                color: Colors.white.withOpacity(0.9),
+                                fontSize: 12,
                               ),
                             ),
                           ],
                         ),
-                        subtitle: Text("Qty: ${item['quantity']}"),
-                        trailing: Text(
-                          formatCurrency.format(
-                            item['price'] * item['quantity'],
-                          ),
-                          style: GoogleFonts.poppins(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      );
-                    },
+                      ),
+                    ],
                   ),
                 ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Tutup"),
+                const SizedBox(height: 20),
+
+                // Content
+                items.isEmpty
+                    ? Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Column(
+                          children: [
+                            Icon(
+                              Icons.inventory_2_outlined,
+                              size: 64,
+                              color: Colors.grey.shade300,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              "Tidak ada detail belanja",
+                              style: GoogleFonts.poppins(
+                                color: Colors.grey.shade600,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: MediaQuery.of(context).size.height * 0.5,
+                        ),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: items.length,
+                          separatorBuilder: (_, __) =>
+                              Divider(color: Colors.grey.shade200, height: 1),
+                          itemBuilder: (context, idx) {
+                            final item = items[idx];
+                            final priceType = item['price_type'] ?? 'retail';
+                            final isRetail = priceType == 'retail';
+
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 12,
+                                horizontal: 8,
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Number badge
+                                  Container(
+                                    width: 32,
+                                    height: 32,
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.shade50,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      "${idx + 1}",
+                                      style: GoogleFonts.poppins(
+                                        color: Colors.blue.shade700,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+
+                                  // Product info
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          item['name'],
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.grey.shade800,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Row(
+                                          children: [
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 3,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: isRetail
+                                                    ? Colors.green.shade50
+                                                    : Colors.orange.shade50,
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                                border: Border.all(
+                                                  color: isRetail
+                                                      ? Colors.green.shade200
+                                                      : Colors.orange.shade200,
+                                                  width: 1,
+                                                ),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    isRetail
+                                                        ? Icons
+                                                              .shopping_bag_outlined
+                                                        : Icons
+                                                              .inventory_outlined,
+                                                    size: 10,
+                                                    color: isRetail
+                                                        ? Colors.green.shade700
+                                                        : Colors
+                                                              .orange
+                                                              .shade700,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    isRetail
+                                                        ? 'Eceran'
+                                                        : 'Grosir',
+                                                    style: GoogleFonts.poppins(
+                                                      fontSize: 10,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color: isRetail
+                                                          ? Colors
+                                                                .green
+                                                                .shade700
+                                                          : Colors
+                                                                .orange
+                                                                .shade700,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              "Qty: ${item['quantity']}",
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 12,
+                                                color: Colors.grey.shade600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+
+                                  // Price
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        formatCurrency.format(
+                                          item['price'] * item['quantity'],
+                                        ),
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.blue.shade700,
+                                        ),
+                                      ),
+                                      Text(
+                                        "${formatCurrency.format(item['price'])} × ${item['quantity']}",
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 10,
+                                          color: Colors.grey.shade500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+
+                const SizedBox(height: 20),
+
+                // Close button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey.shade100,
+                      foregroundColor: Colors.grey.shade700,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: Text(
+                      "Tutup",
+                      style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         );
       },
     );
@@ -656,38 +896,50 @@ class _IncomeScreenState extends State<IncomeScreen> {
                                   itemCount: transactions.length,
                                   itemBuilder: (context, index) {
                                     final trx = transactions[index];
-                                    return Card(
-                                      margin: const EdgeInsets.only(bottom: 12),
-                                      child: ListTile(
-                                        leading: const Icon(
-                                          Icons.receipt_long,
-                                          color: Colors.green,
-                                        ),
-                                        title: Text(
-                                          "Transaksi #${trx['id']}",
-                                          style: GoogleFonts.poppins(
-                                            fontWeight: FontWeight.w600,
+                                    return FutureBuilder<int>(
+                                      future: _getDailyTransactionNumber(trx),
+                                      builder: (context, snapshot) {
+                                        final dailyNumber =
+                                            snapshot.data ?? trx['id'];
+
+                                        return Card(
+                                          margin: const EdgeInsets.only(
+                                            bottom: 12,
                                           ),
-                                        ),
-                                        subtitle: Text(
-                                          DateFormat(
-                                            'dd MMM yyyy, HH:mm',
-                                          ).format(
-                                            DateTime.parse(trx['created_at']),
+                                          child: ListTile(
+                                            leading: const Icon(
+                                              Icons.receipt_long,
+                                              color: Colors.green,
+                                            ),
+                                            title: Text(
+                                              "Transaksi #$dailyNumber",
+                                              style: GoogleFonts.poppins(
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            subtitle: Text(
+                                              DateFormat(
+                                                'dd MMM yyyy, HH:mm',
+                                              ).format(
+                                                DateTime.parse(
+                                                  trx['created_at'],
+                                                ),
+                                              ),
+                                            ),
+                                            trailing: Text(
+                                              formatCurrency.format(
+                                                trx['total_amount'],
+                                              ),
+                                              style: GoogleFonts.poppins(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.green,
+                                              ),
+                                            ),
+                                            onTap: () =>
+                                                _showTransactionActions(trx),
                                           ),
-                                        ),
-                                        trailing: Text(
-                                          formatCurrency.format(
-                                            trx['total_amount'],
-                                          ),
-                                          style: GoogleFonts.poppins(
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.green,
-                                          ),
-                                        ),
-                                        onTap: () =>
-                                            _showTransactionActions(trx),
-                                      ),
+                                        );
+                                      },
                                     );
                                   },
                                 ),
