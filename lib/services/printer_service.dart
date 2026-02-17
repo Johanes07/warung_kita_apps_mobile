@@ -88,4 +88,93 @@ class PrinterService extends ChangeNotifier {
       return false;
     }
   }
+
+  /// Print receipt with multi-unit support
+  Future<bool> printReceipt({
+    required int transactionId,
+    required int dailyNumber,
+    required List<Map<String, dynamic>> cart,
+    required int totalAmount,
+    required String paymentMethod,
+    int cashReceived = 0,
+    int changeAmount = 0,
+  }) async {
+    if (!connected || selectedDevice == null) {
+      return false;
+    }
+
+    try {
+      // Header
+      printer.printNewLine();
+      printer.printCustom("TOKO RIZKI", 3, 1);
+      printer.printCustom("Jl. Contoh No. 123", 1, 1);
+      printer.printCustom("Telp: 08123456789", 1, 1);
+      printer.printCustom("================================", 1, 1);
+
+      // Transaction Info
+      final now = DateTime.now();
+      printer.printCustom("No: #$dailyNumber", 1, 0);
+      printer.printCustom(
+        "${now.day}/${now.month}/${now.year} ${now.hour}:${now.minute.toString().padLeft(2, '0')}",
+        1,
+        0,
+      );
+      printer.printCustom("================================", 1, 1);
+
+      // Items
+      for (var item in cart) {
+        final qty = item['qty'] is int
+            ? (item['qty'] as int).toDouble()
+            : item['qty'] as double;
+        final qtyStr = qty == qty.toInt()
+            ? qty.toInt().toString()
+            : qty.toString().replaceAll('.', ',');
+
+        printer.printCustom(item['name'], 1, 0);
+
+        final price = (item['price'] as int).toDouble();
+        final subtotal = (price * qty).round();
+
+        printer.printCustom(
+          "$qtyStr ${item['unit']} x Rp ${_formatNumber(price.toInt())}",
+          1,
+          0,
+        );
+        printer.printCustom("Subtotal: Rp ${_formatNumber(subtotal)}", 1, 2);
+      }
+
+      printer.printCustom("================================", 1, 1);
+
+      // Total
+      printer.printCustom("TOTAL: Rp ${_formatNumber(totalAmount)}", 2, 1);
+
+      // Payment Info
+      printer.printCustom("--------------------------------", 1, 1);
+      printer.printCustom("Metode: ${paymentMethod.toUpperCase()}", 1, 0);
+
+      if (paymentMethod == 'cash') {
+        printer.printCustom("Tunai: Rp ${_formatNumber(cashReceived)}", 1, 0);
+        printer.printCustom("Kembali: Rp ${_formatNumber(changeAmount)}", 1, 0);
+      }
+
+      printer.printCustom("================================", 1, 1);
+      printer.printCustom("Terima Kasih", 2, 1);
+      printer.printCustom("Selamat Berbelanja Kembali", 1, 1);
+      printer.printNewLine();
+      printer.printNewLine();
+      printer.printNewLine();
+
+      return true;
+    } catch (e) {
+      debugPrint("Error print receipt: $e");
+      return false;
+    }
+  }
+
+  String _formatNumber(int number) {
+    return number.toString().replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (Match m) => '${m[1]}.',
+    );
+  }
 }

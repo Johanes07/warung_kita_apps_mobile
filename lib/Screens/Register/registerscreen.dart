@@ -11,36 +11,44 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final TextEditingController nameController = TextEditingController();
-  final TextEditingController emailController = TextEditingController();
+  final TextEditingController usernameController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
-  final TextEditingController confirmPasswordController = TextEditingController();
+  final TextEditingController confirmPasswordController =
+      TextEditingController();
 
   bool _isLoading = false;
 
   /// Fungsi register user
   Future<void> registerUser() async {
     final name = nameController.text.trim();
-    final email = emailController.text.trim();
+    final username = usernameController.text.trim();
     final password = passwordController.text.trim();
     final confirmPassword = confirmPasswordController.text.trim();
 
-    if (name.isEmpty || email.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Semua field wajib diisi!'),
-          backgroundColor: Colors.red,
-        ),
-      );
+    if (name.isEmpty ||
+        username.isEmpty ||
+        password.isEmpty ||
+        confirmPassword.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Semua field wajib diisi!'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
       return;
     }
 
     if (password != confirmPassword) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Password dan konfirmasi tidak cocok!'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Password dan konfirmasi tidak cocok!'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
       return;
     }
 
@@ -48,48 +56,70 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _isLoading = true;
     });
 
-    final db = await DatabaseHelper.instance.database;
+    try {
+      final db = await DatabaseHelper.instance.database;
 
-    /// Cek apakah email sudah terdaftar
-    final existingUser = await db.query(
-      'users',
-      where: 'email = ?',
-      whereArgs: [email],
-    );
+      /// Cek apakah username sudah terdaftar
+      final existingUser = await db.query(
+        'users',
+        where: 'username = ?',
+        whereArgs: [username],
+      );
 
-    if (existingUser.isNotEmpty) {
+      if (existingUser.isNotEmpty) {
+        setState(() {
+          _isLoading = false;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Username sudah terdaftar!'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      /// Simpan user baru
+      await db.insert('users', {
+        'name': name,
+        'username': username,
+        'password': password,
+      });
+
       setState(() {
         _isLoading = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Email sudah terdaftar!'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Registrasi Berhasil! Silakan login.'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+
+        /// Pindah ke halaman login
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/login');
+        }
+      }
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal registrasi: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
-
-    /// Simpan user baru
-    await db.insert('users', {
-      'name': name,
-      'email': email,
-      'password': password,
-    });
-
-    setState(() {
-      _isLoading = false;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Registrasi Berhasil! Silakan login.'),
-        backgroundColor: Colors.green,
-      ),
-    );
-
-    /// Pindah ke halaman login
-    Navigator.pushReplacementNamed(context, '/login');
   }
 
   @override
@@ -108,9 +138,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
 
           /// === Overlay Transparan Gelap ===
-          Container(
-            color: Colors.black.withOpacity(0.5),
-          ),
+          Container(color: Colors.black.withOpacity(0.5)),
 
           /// === Content Register ===
           Center(
@@ -153,7 +181,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           controller: nameController,
                           style: const TextStyle(color: Colors.black87),
                           decoration: InputDecoration(
-                            prefixIcon: const Icon(Icons.person, color: Colors.brown),
+                            prefixIcon: const Icon(
+                              Icons.person,
+                              color: Colors.brown,
+                            ),
                             labelText: 'Nama Lengkap',
                             labelStyle: const TextStyle(color: Colors.brown),
                             filled: true,
@@ -162,20 +193,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               borderRadius: BorderRadius.circular(15),
                             ),
                             focusedBorder: OutlineInputBorder(
-                              borderSide: const BorderSide(color: Colors.brown, width: 2),
+                              borderSide: const BorderSide(
+                                color: Colors.brown,
+                                width: 2,
+                              ),
                               borderRadius: BorderRadius.circular(15),
                             ),
                           ),
                         ),
                         const SizedBox(height: 15),
 
-                        /// Email Field
+                        /// Username Field
                         TextField(
-                          controller: emailController,
+                          controller: usernameController,
                           style: const TextStyle(color: Colors.black87),
                           decoration: InputDecoration(
-                            prefixIcon: const Icon(Icons.email, color: Colors.brown),
-                            labelText: 'Email',
+                            prefixIcon: const Icon(
+                              Icons.person_outline,
+                              color: Colors.brown,
+                            ),
+                            labelText: 'Username',
                             labelStyle: const TextStyle(color: Colors.brown),
                             filled: true,
                             fillColor: Colors.white,
@@ -183,7 +220,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               borderRadius: BorderRadius.circular(15),
                             ),
                             focusedBorder: OutlineInputBorder(
-                              borderSide: const BorderSide(color: Colors.brown, width: 2),
+                              borderSide: const BorderSide(
+                                color: Colors.brown,
+                                width: 2,
+                              ),
                               borderRadius: BorderRadius.circular(15),
                             ),
                           ),
@@ -196,7 +236,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           obscureText: true,
                           style: const TextStyle(color: Colors.black87),
                           decoration: InputDecoration(
-                            prefixIcon: const Icon(Icons.lock, color: Colors.brown),
+                            prefixIcon: const Icon(
+                              Icons.lock,
+                              color: Colors.brown,
+                            ),
                             labelText: 'Password',
                             labelStyle: const TextStyle(color: Colors.brown),
                             filled: true,
@@ -205,7 +248,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               borderRadius: BorderRadius.circular(15),
                             ),
                             focusedBorder: OutlineInputBorder(
-                              borderSide: const BorderSide(color: Colors.brown, width: 2),
+                              borderSide: const BorderSide(
+                                color: Colors.brown,
+                                width: 2,
+                              ),
                               borderRadius: BorderRadius.circular(15),
                             ),
                           ),
@@ -218,7 +264,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           obscureText: true,
                           style: const TextStyle(color: Colors.black87),
                           decoration: InputDecoration(
-                            prefixIcon: const Icon(Icons.lock_outline, color: Colors.brown),
+                            prefixIcon: const Icon(
+                              Icons.lock_outline,
+                              color: Colors.brown,
+                            ),
                             labelText: 'Konfirmasi Password',
                             labelStyle: const TextStyle(color: Colors.brown),
                             filled: true,
@@ -227,7 +276,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               borderRadius: BorderRadius.circular(15),
                             ),
                             focusedBorder: OutlineInputBorder(
-                              borderSide: const BorderSide(color: Colors.brown, width: 2),
+                              borderSide: const BorderSide(
+                                color: Colors.brown,
+                                width: 2,
+                              ),
                               borderRadius: BorderRadius.circular(15),
                             ),
                           ),
@@ -248,7 +300,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               elevation: 5,
                             ),
                             child: _isLoading
-                                ? const CircularProgressIndicator(color: Colors.white)
+                                ? const CircularProgressIndicator(
+                                    color: Colors.white,
+                                  )
                                 : const Text(
                                     'Register',
                                     style: TextStyle(
@@ -264,7 +318,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                         /// Kembali ke Login
                         TextButton(
-                          onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
+                          onPressed: () =>
+                              Navigator.pushReplacementNamed(context, '/login'),
                           child: Text(
                             'Sudah punya akun? Login',
                             style: GoogleFonts.poppins(

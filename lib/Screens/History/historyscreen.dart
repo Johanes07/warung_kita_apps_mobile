@@ -102,7 +102,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final db = await dbHelper.database;
     final result = await db.rawQuery(
       '''
-      SELECT ti.*, p.name 
+      SELECT ti.*, p.name, p.base_unit
       FROM transaction_items ti
       JOIN products p ON ti.product_id = p.id
       WHERE ti.transaction_id = ?
@@ -153,7 +153,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
-  /// ================= EXPORT PDF DETAIL =================
+  /// ================= EXPORT PDF RINGKAS =================
   Future<void> _exportPDF() async {
     if (transactions.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -176,7 +176,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       decimalDigits: 0,
     );
 
-    // ✅ Load semua detail transaksi dengan produknya DAN nomor urut per hari
+    // Load semua detail transaksi dengan nomor urut per hari
     List<Map<String, dynamic>> detailedTransactions = [];
     for (var trx in transactions) {
       final items = await _getTransactionItems(trx['id']);
@@ -191,7 +191,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     pdf.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(24),
+        margin: const pw.EdgeInsets.all(20),
         build: (context) => [
           /// ===== HEADER =====
           pw.Center(
@@ -200,227 +200,189 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 pw.Text(
                   "TOKO RIZKI",
                   style: pw.TextStyle(
-                    fontSize: 24,
+                    fontSize: 20,
                     fontWeight: pw.FontWeight.bold,
                   ),
                 ),
                 pw.SizedBox(height: 4),
                 pw.Text(
-                  "Laporan Riwayat Transaksi Detail",
-                  style: pw.TextStyle(fontSize: 14, color: PdfColors.grey700),
+                  "Laporan Riwayat Transaksi",
+                  style: pw.TextStyle(fontSize: 12, color: PdfColors.grey700),
                 ),
-                pw.SizedBox(height: 8),
+                pw.SizedBox(height: 6),
                 pw.Divider(thickness: 1),
               ],
             ),
           ),
 
-          pw.SizedBox(height: 16),
+          pw.SizedBox(height: 10),
 
           /// ===== INFO =====
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
               pw.Text(
-                "Tanggal Cetak:",
-                style: const pw.TextStyle(fontSize: 10),
+                "Tanggal Cetak: ${DateFormat('dd MMM yyyy, HH:mm').format(DateTime.now())}",
+                style: const pw.TextStyle(fontSize: 9),
               ),
-              pw.Text(
-                DateFormat('dd MMM yyyy, HH:mm').format(DateTime.now()),
-                style: const pw.TextStyle(fontSize: 10),
+              if (selectedRange != null)
+                pw.Text(
+                  "Periode: ${DateFormat('dd MMM yyyy').format(selectedRange!.start)} - ${DateFormat('dd MMM yyyy').format(selectedRange!.end)}",
+                  style: const pw.TextStyle(fontSize: 9),
+                ),
+            ],
+          ),
+
+          pw.SizedBox(height: 12),
+
+          /// ===== TABEL RINGKAS SEMUA TRANSAKSI =====
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+            columnWidths: {
+              0: const pw.FixedColumnWidth(30), // No
+              1: const pw.FixedColumnWidth(80), // Tanggal
+              2: const pw.FlexColumnWidth(3), // Produk
+              3: const pw.FixedColumnWidth(50), // Qty
+              4: const pw.FixedColumnWidth(70), // Total
+            },
+            children: [
+              /// Header Tabel
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.grey300),
+                children: [
+                  _tableHeader("No"),
+                  _tableHeader("Tanggal"),
+                  _tableHeader("Produk"),
+                  _tableHeader("Qty"),
+                  _tableHeader("Total"),
+                ],
+              ),
+
+              /// Data Transaksi
+              ...detailedTransactions.expand((data) {
+                final trx = data['transaction'];
+                final items = data['items'] as List<Map<String, dynamic>>;
+                final dailyNumber = data['dailyNumber'];
+                final transactionDate = DateFormat(
+                  'dd/MM HH:mm',
+                ).format(DateTime.parse(trx['created_at']));
+
+                // Buat list rows untuk transaksi ini
+                List<pw.TableRow> rows = [];
+
+                for (int i = 0; i < items.length; i++) {
+                  final item = items[i];
+                  final qty = item['quantity'];
+                  final unit = item['unit_name'] ?? 'pcs';
+                  final qtyStr = (qty is double ? qty : (qty as num).toDouble())
+                      .toStringAsFixed((qty % 1 == 0) ? 0 : 1);
+
+                  rows.add(
+                    pw.TableRow(
+                      children: [
+                        // Nomor transaksi hanya di baris pertama
+                        i == 0
+                            ? _tableCell(
+                                "#$dailyNumber",
+                                align: pw.TextAlign.center,
+                              )
+                            : _tableCell(""),
+                        // Tanggal hanya di baris pertama
+                        i == 0
+                            ? _tableCell(
+                                transactionDate,
+                                align: pw.TextAlign.center,
+                              )
+                            : _tableCell(""),
+                        // Nama produk
+                        _tableCell(item['name']),
+                        // Quantity
+                        _tableCell("$qtyStr $unit", align: pw.TextAlign.center),
+                        // Total hanya di baris pertama
+                        i == 0
+                            ? _tableCell(
+                                formatCurrency.format(trx['total_amount']),
+                                align: pw.TextAlign.right,
+                              )
+                            : _tableCell(""),
+                      ],
+                    ),
+                  );
+                }
+
+                return rows;
+              }),
+
+              /// Row Total
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                children: [
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.all(8),
+                    child: pw.Text(
+                      "",
+                      style: pw.TextStyle(
+                        fontWeight: pw.FontWeight.bold,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.all(8),
+                    child: pw.Text(
+                      "",
+                      style: pw.TextStyle(
+                        fontWeight: pw.FontWeight.bold,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.all(8),
+                    child: pw.Text(
+                      "TOTAL KESELURUHAN",
+                      textAlign: pw.TextAlign.right,
+                      style: pw.TextStyle(
+                        fontWeight: pw.FontWeight.bold,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.all(8),
+                    child: pw.Text(
+                      "${totalTransactions}x",
+                      textAlign: pw.TextAlign.center,
+                      style: pw.TextStyle(
+                        fontWeight: pw.FontWeight.bold,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.all(8),
+                    child: pw.Text(
+                      formatCurrency.format(totalRevenue),
+                      textAlign: pw.TextAlign.right,
+                      style: pw.TextStyle(
+                        fontWeight: pw.FontWeight.bold,
+                        fontSize: 10,
+                        color: PdfColors.green700,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
 
-          if (selectedRange != null)
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text("Periode:", style: const pw.TextStyle(fontSize: 10)),
-                pw.Text(
-                  "${DateFormat('dd MMM yyyy').format(selectedRange!.start)} - ${DateFormat('dd MMM yyyy').format(selectedRange!.end)}",
-                  style: const pw.TextStyle(fontSize: 10),
-                ),
-              ],
-            ),
-
-          pw.SizedBox(height: 20),
-
-          /// ✅ DETAIL SETIAP TRANSAKSI dengan nomor urut per hari
-          ...detailedTransactions.map((data) {
-            final trx = data['transaction'];
-            final items = data['items'] as List<Map<String, dynamic>>;
-            final dailyNumber = data['dailyNumber'];
-
-            return pw.Container(
-              margin: const pw.EdgeInsets.only(bottom: 20),
-              padding: const pw.EdgeInsets.all(12),
-              decoration: pw.BoxDecoration(
-                border: pw.Border.all(color: PdfColors.grey300),
-                borderRadius: pw.BorderRadius.circular(8),
-              ),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  /// Header Transaksi dengan nomor urut per hari
-                  pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                    children: [
-                      pw.Text(
-                        "Transaksi #$dailyNumber",
-                        style: pw.TextStyle(
-                          fontWeight: pw.FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      ),
-                      pw.Text(
-                        DateFormat(
-                          'dd MMM yyyy, HH:mm',
-                        ).format(DateTime.parse(trx['created_at'])),
-                        style: const pw.TextStyle(fontSize: 10),
-                      ),
-                    ],
-                  ),
-
-                  pw.SizedBox(height: 8),
-                  pw.Divider(thickness: 0.5),
-                  pw.SizedBox(height: 8),
-
-                  /// Tabel Detail Produk
-                  pw.Table(
-                    border: pw.TableBorder.all(color: PdfColors.grey300),
-                    columnWidths: {
-                      0: const pw.FlexColumnWidth(3), // Nama Produk
-                      1: const pw.FlexColumnWidth(1), // Qty
-                      2: const pw.FlexColumnWidth(1.5), // Harga
-                      3: const pw.FlexColumnWidth(1.5), // Subtotal
-                      4: const pw.FlexColumnWidth(1), // Tipe
-                    },
-                    children: [
-                      /// Header Tabel Produk
-                      pw.TableRow(
-                        decoration: const pw.BoxDecoration(
-                          color: PdfColors.grey200,
-                        ),
-                        children: [
-                          _tableHeader("Produk"),
-                          _tableHeader("Qty"),
-                          _tableHeader("Harga"),
-                          _tableHeader("Subtotal"),
-                          _tableHeader("Tipe"),
-                        ],
-                      ),
-
-                      /// Data Produk
-                      ...items.map((item) {
-                        final qty = item['quantity'];
-                        final price = item['price'];
-                        final subtotal = qty * price;
-                        final priceType = item['price_type'] ?? 'retail';
-
-                        return pw.TableRow(
-                          children: [
-                            _tableCell(item['name']),
-                            _tableCell(
-                              qty.toString(),
-                              align: pw.TextAlign.center,
-                            ),
-                            _tableCell(
-                              formatCurrency.format(price),
-                              align: pw.TextAlign.right,
-                            ),
-                            _tableCell(
-                              formatCurrency.format(subtotal),
-                              align: pw.TextAlign.right,
-                            ),
-                            _tableCell(
-                              priceType == 'retail' ? 'Eceran' : 'Grosir',
-                              align: pw.TextAlign.center,
-                            ),
-                          ],
-                        );
-                      }).toList(),
-                    ],
-                  ),
-
-                  pw.SizedBox(height: 8),
-
-                  /// Total Transaksi
-                  pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.end,
-                    children: [
-                      pw.Text(
-                        "TOTAL: ",
-                        style: pw.TextStyle(
-                          fontWeight: pw.FontWeight.bold,
-                          fontSize: 11,
-                        ),
-                      ),
-                      pw.Text(
-                        formatCurrency.format(trx['total_amount']),
-                        style: pw.TextStyle(
-                          fontWeight: pw.FontWeight.bold,
-                          fontSize: 12,
-                          color: PdfColors.green,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            );
-          }).toList(),
-
-          pw.SizedBox(height: 20),
-
-          /// ===== SUMMARY =====
-          pw.Container(
-            padding: const pw.EdgeInsets.all(12),
-            decoration: pw.BoxDecoration(
-              border: pw.Border.all(color: PdfColors.grey400),
-              borderRadius: pw.BorderRadius.circular(6),
-              color: PdfColors.grey100,
-            ),
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text(
-                  "Ringkasan Keseluruhan",
-                  style: pw.TextStyle(
-                    fontWeight: pw.FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-                pw.SizedBox(height: 8),
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text("Total Transaksi"),
-                    pw.Text(totalTransactions.toString()),
-                  ],
-                ),
-                pw.SizedBox(height: 4),
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text("Total Pendapatan"),
-                    pw.Text(
-                      formatCurrency.format(totalRevenue),
-                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-
-          pw.SizedBox(height: 24),
+          pw.SizedBox(height: 16),
 
           /// ===== FOOTER =====
           pw.Center(
             child: pw.Text(
-              "Terima kasih telah menggunakan sistem TOKO RIZKI",
-              style: pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
+              "Terima kasih - TOKO RIZKI",
+              style: pw.TextStyle(fontSize: 9, color: PdfColors.grey600),
             ),
           ),
         ],
@@ -428,9 +390,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
 
     // Close loading
-    Navigator.pop(context);
-
-    await Printing.layoutPdf(onLayout: (format) async => pdf.save());
+    if (mounted) {
+      Navigator.pop(context);
+      await Printing.layoutPdf(onLayout: (format) async => pdf.save());
+    }
   }
 
   /// ================= RINGKASAN DATA =================
@@ -659,7 +622,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             ),
                             const SizedBox(height: 16),
                             Text(
-                              "Export Laporan PDF Detail",
+                              "Export Laporan PDF Ringkas",
                               style: GoogleFonts.poppins(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
@@ -669,7 +632,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             Text(
                               transactions.isEmpty
                                   ? "Tidak ada data untuk dicetak"
-                                  : "Cetak laporan transaksi lengkap dengan detail produk",
+                                  : "Cetak semua transaksi dalam 1 tabel ringkas (hemat kertas)",
                               textAlign: TextAlign.center,
                               style: GoogleFonts.poppins(
                                 fontSize: 13,
@@ -726,7 +689,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
-                                "Laporan PDF akan menampilkan nomor transaksi sesuai urutan per hari dan detail lengkap produk yang dibeli",
+                                "Laporan PDF akan menampilkan semua transaksi dalam 1 tabel ringkas dengan detail produk per transaksi",
                                 style: GoogleFonts.poppins(
                                   fontSize: 12,
                                   color: Colors.blue.shade900,

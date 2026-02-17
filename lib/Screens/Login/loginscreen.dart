@@ -14,7 +14,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final TextEditingController emailController = TextEditingController();
+  final TextEditingController usernameController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
 
   bool _isLoading = false;
@@ -65,28 +65,28 @@ class _LoginScreenState extends State<LoginScreen> {
         failTrigger = controller.findInput<bool>('fail') as SMITrigger?;
 
         // Debugging
-        print("SuccessTrigger ditemukan: $successTrigger");
-        print("FailTrigger ditemukan: $failTrigger");
+        debugPrint("SuccessTrigger ditemukan: $successTrigger");
+        debugPrint("FailTrigger ditemukan: $failTrigger");
       } else {
-        print("❌ State Machine 'Login Machine' tidak ditemukan di file Rive!");
+        debugPrint("❌ State Machine 'Login Machine' tidak ditemukan di file Rive!");
       }
 
       setState(() {
         _riveArtboard = artboard;
       });
     } catch (e) {
-      print("Error saat load Rive: $e");
+      debugPrint("Error saat load Rive: $e");
     }
   }
 
   /// === Fungsi Login ===
   Future<void> loginUser() async {
-    final email = emailController.text.trim();
+    final username = usernameController.text.trim();
     final password = passwordController.text.trim();
 
     // Validasi input
-    if (email.isEmpty || password.isEmpty) {
-      _showSnackBar('Email dan password harus diisi!', Colors.orange);
+    if (username.isEmpty || password.isEmpty) {
+      _showSnackBar('Username dan password harus diisi!', Colors.orange);
       return;
     }
 
@@ -97,14 +97,14 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final db = await DatabaseHelper.instance.database;
 
-      // Pastikan nama tabel dan kolom sesuai
+      // Query dengan username
       final result = await db.query(
         'users',
-        where: 'email = ? AND password = ?',
-        whereArgs: [email, password],
+        where: 'username = ? AND password = ?',
+        whereArgs: [username, password],
       );
 
-      print("Hasil login: $result"); // Debugging
+      debugPrint("Hasil login: $result"); // Debugging
 
       setState(() {
         _isLoading = false;
@@ -113,23 +113,27 @@ class _LoginScreenState extends State<LoginScreen> {
       if (result.isNotEmpty) {
         // ✅ Trigger animasi sukses
         successTrigger?.fire();
-        print("Trigger sukses dipanggil");
+        debugPrint("Trigger sukses dipanggil");
 
         final int userId = result.first['id'] as int;
 
         _showSnackBar('Login berhasil!', Colors.green);
 
         Future.delayed(const Duration(seconds: 1), () {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => HomeScreen(userId: userId)),
-          );
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => HomeScreen(userId: userId),
+              ),
+            );
+          }
         });
       } else {
         // ❌ Trigger animasi gagal
         failTrigger?.fire();
-        print("Trigger gagal dipanggil");
-        _showSnackBar('Email atau password salah', Colors.red);
+        debugPrint("Trigger gagal dipanggil");
+        _showSnackBar('Username atau password salah', Colors.red);
       }
     } catch (e) {
       setState(() {
@@ -209,9 +213,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 25),
 
-                      /// === Input Email ===
+                      /// === Input Username ===
                       TextField(
-                        controller: emailController,
+                        controller: usernameController,
                         style: const TextStyle(color: Colors.black87),
                         onTap: () {
                           isFocus?.value = true;
@@ -222,9 +226,11 @@ class _LoginScreenState extends State<LoginScreen> {
                           numLook?.value = value.length.toDouble();
                         },
                         decoration: InputDecoration(
-                          prefixIcon:
-                              const Icon(Icons.email, color: Colors.brown),
-                          labelText: 'Email',
+                          prefixIcon: const Icon(
+                            Icons.person,
+                            color: Colors.brown,
+                          ),
+                          labelText: 'Username',
                           labelStyle: const TextStyle(color: Colors.brown),
                           filled: true,
                           fillColor: Colors.white,
@@ -233,7 +239,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderSide: const BorderSide(
-                                color: Colors.brown, width: 2),
+                              color: Colors.brown,
+                              width: 2,
+                            ),
                             borderRadius: BorderRadius.circular(15),
                           ),
                         ),
@@ -252,8 +260,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           isPrivateField?.value = value.isNotEmpty;
                         },
                         decoration: InputDecoration(
-                          prefixIcon:
-                              const Icon(Icons.lock, color: Colors.brown),
+                          prefixIcon: const Icon(
+                            Icons.lock,
+                            color: Colors.brown,
+                          ),
                           suffixIcon: IconButton(
                             icon: Icon(
                               _obscurePassword
@@ -277,7 +287,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderSide: const BorderSide(
-                                color: Colors.brown, width: 2),
+                              color: Colors.brown,
+                              width: 2,
+                            ),
                             borderRadius: BorderRadius.circular(15),
                           ),
                         ),
@@ -342,3 +354,5 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
+
+

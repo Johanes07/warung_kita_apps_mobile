@@ -1,9 +1,12 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:warung_kita/db/database_helper.dart';
 import 'package:warung_kita/services/printer_service.dart';
+import 'package:warung_kita/Screens/Cashier/checkoutscreen.dart';
 
 class CashierScreen extends StatefulWidget {
   final bool editMode;
@@ -37,8 +40,6 @@ class _CashierScreenState extends State<CashierScreen> {
   final TextEditingController searchController = TextEditingController();
   int totalAmount = 0;
   bool isLoading = false;
-
-  // ✅ TAMBAHAN: untuk menyimpan nomor urut harian
   int? dailyTransactionNumber;
 
   @override
@@ -48,12 +49,10 @@ class _CashierScreenState extends State<CashierScreen> {
 
     if (widget.editMode && widget.existingCart != null) {
       _loadExistingCart();
-      // ✅ Load nomor urut harian saat edit mode
       _loadDailyNumber();
     }
   }
 
-  // ✅ TAMBAHAN: Load nomor transaksi harian
   Future<void> _loadDailyNumber() async {
     if (widget.transactionId != null) {
       final number = await _getDailyTransactionNumber(widget.transactionId!);
@@ -71,20 +70,15 @@ class _CashierScreenState extends State<CashierScreen> {
           'name': item['name'],
           'price': item['price'],
           'qty': item['quantity'],
-          'price_retail': item['price_retail'],
-          'price_wholesale': item['price_wholesale'],
-          'price_type': item['price_type'],
+          'unit': item['unit_name'] ?? item['unit'] ?? 'pcs',
         };
       }).toList();
       _calculateTotal();
     });
   }
 
-  /// ✅ MENGHITUNG NOMOR TRANSAKSI PER HARI
   Future<int> _getDailyTransactionNumber(int transactionId) async {
     final db = await dbHelper.database;
-
-    // Ambil created_at dari transaksi
     final trxResult = await db.query(
       'transactions',
       where: 'id = ?',
@@ -97,7 +91,6 @@ class _CashierScreenState extends State<CashierScreen> {
       'yyyy-MM-dd',
     ).format(DateTime.parse(trxResult.first['created_at'].toString()));
 
-    // Hitung berapa transaksi di hari yang sama sebelum transaksi ini
     final result = await db.rawQuery(
       '''
       SELECT COUNT(*) as count FROM transactions
@@ -107,238 +100,175 @@ class _CashierScreenState extends State<CashierScreen> {
       [transactionDate, transactionId],
     );
 
-    return (result.first['count'] ?? 0) as int;
-  }
-
-  Future<bool> _onWillPop() async {
-    if (widget.editMode) {
-      final hasChanges = cart.isNotEmpty;
-      if (hasChanges) {
-        final result = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: Text(
-              "Batalkan Edit?",
-              style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
-            ),
-            content: const Text(
-              "Perubahan belum disimpan. Yakin ingin keluar?",
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text("Lanjut Edit"),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context, true),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                child: const Text("Ya, Keluar"),
-              ),
-            ],
-          ),
-        );
-        return result ?? false;
-      }
-    }
-    return true;
+    return result.first['count'] as int;
   }
 
   Future<void> _loadProducts() async {
+    setState(() => isLoading = true);
     final db = await dbHelper.database;
     final result = await db.query('products', orderBy: 'name ASC');
 
     setState(() {
       products = result;
       filteredProducts = result;
+      isLoading = false;
     });
   }
 
-  void _searchProducts(String query) {
-    final filtered = products.where((product) {
-      final name = (product['name'] ?? '').toString().toLowerCase();
-      final barcode = (product['barcode'] ?? '').toString().toLowerCase();
-      return name.contains(query.toLowerCase()) ||
-          barcode.contains(query.toLowerCase());
-    }).toList();
-
+  void _filterProducts(String query) {
     setState(() {
-      filteredProducts = filtered;
+      if (query.isEmpty) {
+        filteredProducts = products;
+      } else {
+        filteredProducts = products.where((product) {
+          final name = product['name'].toString().toLowerCase();
+          final barcode = product['barcode'].toString().toLowerCase();
+          return name.contains(query.toLowerCase()) ||
+              barcode.contains(query.toLowerCase());
+        }).toList();
+      }
     });
   }
 
   Future<void> _scanBarcode() async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => const CashierBarcodeScannerScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const BarcodeScannerScreen()),
     );
 
     if (result != null && result is String) {
-      _addProductToCartByBarcode(result);
+      final product = products.firstWhere(
+        (p) => p['barcode'] == result,
+        orElse: () => {},
+      );
+
+      if (product.isNotEmpty) {
+        _showUnitSelectionDialog(product);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Produk tidak ditemukan'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
     }
   }
 
-  Future<void> _addProductToCartByBarcode(String barcode) async {
-    final db = await dbHelper.database;
-    final result = await db.query(
-      'products',
-      where: 'barcode = ?',
-      whereArgs: [barcode.trim()],
-    );
+  Future<void> _showUnitSelectionDialog(Map<String, dynamic> product) async {
+    final units = await dbHelper.getProductUnits(product['id']);
 
-    if (result.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Produk tidak ditemukan")));
-      return;
-    }
+    final List<Map<String, dynamic>> unitOptions = [
+      {
+        'unit_name': product['base_unit'],
+        'price': product['base_price'],
+        'conversion_rate': 1.0,
+        'is_base': true,
+        'image_path': product['image_path'],
+      },
+      ...units.map((u) => {...u, 'is_base': false}),
+    ];
 
-    final product = result.first;
-    _showPriceOptionDialog(product);
-  }
+    if (!mounted) return;
 
-  void _showPriceOptionDialog(Map<String, dynamic> product) {
-    final qtyController = TextEditingController(text: "1");
-    final stockRetail = product['stock_retail'] ?? 0;
-    final stockWholesale = product['stock_wholesale'] ?? 0;
-
-    showDialog(
+    showModalBottomSheet(
       context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          title: Text(
-            "Pilih Harga",
-            style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
-          ),
-          content: Column(
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(product['name'], style: GoogleFonts.poppins(fontSize: 16)),
-              const SizedBox(height: 12),
-
-              ListTile(
-                tileColor: stockRetail > 0 ? Colors.grey[100] : Colors.red[50],
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+              Text(
+                'Pilih Satuan',
+                style: GoogleFonts.poppins(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
                 ),
-                title: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      "Harga Eceran",
-                      style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: stockRetail > 0
-                            ? Colors.green.withOpacity(0.2)
-                            : Colors.red.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        "Stok: $stockRetail",
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: stockRetail > 0 ? Colors.green : Colors.red,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                subtitle: Text(
-                  formatCurrency.format(product['price_retail']),
-                  style: GoogleFonts.poppins(color: Colors.black87),
-                ),
-                enabled: stockRetail > 0,
-                onTap: stockRetail > 0
-                    ? () {
-                        Navigator.pop(context);
-                        _addProductToCart(
-                          product,
-                          int.tryParse(qtyController.text) ?? 1,
-                          product['price_retail'],
-                          'retail',
-                        );
-                      }
-                    : null,
               ),
               const SizedBox(height: 8),
-
-              ListTile(
-                tileColor: stockWholesale > 0
-                    ? Colors.grey[100]
-                    : Colors.red[50],
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+              Text(
+                product['name'],
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  color: Colors.grey.shade600,
                 ),
-                title: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      "Harga Grosir",
+              ),
+              const Divider(height: 24),
+              ...unitOptions.map((unit) {
+                final unitImagePath = unit['image_path'];
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    leading: Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child:
+                          unitImagePath != null &&
+                              unitImagePath.toString().isNotEmpty
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.file(
+                                File(unitImagePath.toString()),
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Icon(
+                                    Icons.inventory_2,
+                                    color: Colors.grey.shade400,
+                                  );
+                                },
+                              ),
+                            )
+                          : Icon(
+                              Icons.inventory_2,
+                              color: Colors.grey.shade400,
+                            ),
+                    ),
+                    title: Text(
+                      unit['unit_name'],
                       style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: stockWholesale > 0
-                            ? Colors.orange.withOpacity(0.2)
-                            : Colors.red.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        "Stok: $stockWholesale",
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: stockWholesale > 0
-                              ? Colors.orange
-                              : Colors.red,
-                        ),
-                      ),
+                    subtitle: Text(
+                      formatCurrency.format(unit['price']),
+                      style: GoogleFonts.poppins(fontSize: 13),
                     ),
-                  ],
-                ),
-                subtitle: Text(
-                  formatCurrency.format(product['price_wholesale']),
-                  style: GoogleFonts.poppins(color: Colors.black87),
-                ),
-                enabled: stockWholesale > 0,
-                onTap: stockWholesale > 0
-                    ? () {
-                        Navigator.pop(context);
-                        _addProductToCart(
-                          product,
-                          int.tryParse(qtyController.text) ?? 1,
-                          product['price_wholesale'],
-                          'wholesale',
-                        );
-                      }
-                    : null,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: qtyController,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: "Jumlah",
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
+                    trailing: unit['is_base']
+                        ? Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.shade100,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'Dasar',
+                              style: GoogleFonts.poppins(
+                                fontSize: 11,
+                                color: Colors.blue.shade700,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          )
+                        : null,
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showQuantityDialog(product, unit);
+                    },
                   ),
-                ),
-              ),
+                );
+              }),
             ],
           ),
         );
@@ -346,710 +276,723 @@ class _CashierScreenState extends State<CashierScreen> {
     );
   }
 
-  void _addProductToCart(
+  void _showQuantityDialog(
     Map<String, dynamic> product,
-    int qty,
-    int price,
-    String priceType,
+    Map<String, dynamic> selectedUnit,
   ) {
-    setState(() {
-      final index = cart.indexWhere(
-        (item) => item['id'] == product['id'] && item['price'] == price,
-      );
+    final qtyController = TextEditingController(text: '1');
 
-      if (index >= 0) {
-        cart[index]['qty'] += qty;
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(
+            'Jumlah',
+            style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${product['name']} (${selectedUnit['unit_name']})',
+                style: GoogleFonts.poppins(fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: qtyController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9,]')),
+                ],
+                decoration: InputDecoration(
+                  labelText: 'Jumlah (gunakan koma untuk desimal)',
+                  hintText: 'Contoh: 5 atau 2,5',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                autofocus: true,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final qty = double.tryParse(
+                  qtyController.text.replaceAll(',', '.'),
+                );
+                if (qty != null && qty > 0) {
+                  _addToCart(product, selectedUnit, qty);
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text('Tambah'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showEditQuantityDialog(Map<String, dynamic> item, int index) {
+    final currentQty = item['qty'] is int
+        ? (item['qty'] as int).toDouble()
+        : item['qty'] as double;
+    final qtyText = currentQty % 1 == 0
+        ? currentQty.toInt().toString()
+        : currentQty.toString().replaceAll('.', ',');
+    final qtyController = TextEditingController(text: qtyText);
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(
+            'Edit Jumlah',
+            style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${item['name']} (${item['unit']})',
+                style: GoogleFonts.poppins(fontSize: 13),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: qtyController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9,]')),
+                ],
+                decoration: InputDecoration(
+                  labelText: 'Jumlah (gunakan koma untuk desimal)',
+                  hintText: 'Contoh: 5 atau 2,5',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                autofocus: true,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final qty = double.tryParse(
+                  qtyController.text.replaceAll(',', '.'),
+                );
+                if (qty != null && qty > 0) {
+                  setState(() {
+                    cart[index]['qty'] = qty;
+                    _calculateTotal();
+                  });
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text('Update'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _addToCart(
+    Map<String, dynamic> product,
+    Map<String, dynamic> unit,
+    double qty,
+  ) {
+    final existingIndex = cart.indexWhere(
+      (item) =>
+          item['id'] == product['id'] && item['unit'] == unit['unit_name'],
+    );
+
+    setState(() {
+      if (existingIndex >= 0) {
+        cart[existingIndex]['qty'] += qty;
       } else {
         cart.add({
           'id': product['id'],
           'name': product['name'],
-          'price': price,
+          'price': unit['price'],
           'qty': qty,
-          'price_retail': product['price_retail'],
-          'price_wholesale': product['price_wholesale'],
-          'price_type': priceType,
+          'unit': unit['unit_name'],
+          'conversion_rate': unit['conversion_rate'] ?? 1.0,
         });
       }
       _calculateTotal();
     });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${product['name']} ditambahkan ke keranjang'),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 1),
+      ),
+    );
   }
 
   void _calculateTotal() {
+    int total = 0;
+    for (var item in cart) {
+      final price = (item['price'] as int).toDouble();
+      final qty = item['qty'] is int
+          ? (item['qty'] as int).toDouble()
+          : item['qty'] as double;
+      total += (price * qty).round();
+    }
     setState(() {
-      totalAmount = cart.fold(0, (sum, item) {
-        final price = int.tryParse(item['price'].toString()) ?? 0;
-        final qty = int.tryParse(item['qty'].toString()) ?? 0;
-        return sum + (price * qty);
-      });
+      totalAmount = total;
     });
   }
 
-  void _updateQty(int index, int delta) {
-    setState(() {
-      cart[index]['qty'] += delta;
-      if (cart[index]['qty'] <= 0) {
-        cart.removeAt(index);
-      }
-      _calculateTotal();
-    });
-  }
-
-  void _removeItem(int index) {
-    setState(() {
-      cart.removeAt(index);
-      _calculateTotal();
-    });
-  }
-
-  /// ✅ Print Receipt - Dengan nomor urut per hari
-  Future<void> _printReceiptBluetooth(
-    int transactionId,
-    List<Map<String, dynamic>> items,
-    int total,
-  ) async {
-    if (!printerService.connected || printerService.selectedDevice == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Printer belum terhubung. Silakan hubungkan printer di halaman utama.",
-          ),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 3),
-        ),
-      );
-      return;
-    }
-
-    try {
-      // ✅ Dapatkan nomor urut transaksi per hari
-      final dailyNumber = await _getDailyTransactionNumber(transactionId);
-
-      printerService.printer.printNewLine();
-      printerService.printer.printCustom("TOKO RIZKI", 3, 1);
-      printerService.printer.printCustom("Transaksi #$dailyNumber", 1, 1);
-      printerService.printer.printCustom(
-        DateFormat('dd MMM yyyy, HH:mm').format(DateTime.now()),
-        1,
-        1,
-      );
-      printerService.printer.printNewLine();
-
-      for (var item in items) {
-        final name = item['name'];
-        final qty = item['qty'];
-        final price = item['price'];
-        final subtotal = qty * price;
-        final priceType = item['price_type'] ?? 'retail';
-
-        printerService.printer.printLeftRight(
-          name,
-          formatCurrency.format(subtotal),
-          1,
-        );
-        printerService.printer.printCustom(
-          "$qty x ${formatCurrency.format(price)} (${priceType == 'retail' ? 'Eceran' : 'Grosir'})",
-          0,
-          0,
-        );
-      }
-
-      printerService.printer.printNewLine();
-      printerService.printer.printLeftRight(
-        "TOTAL",
-        formatCurrency.format(total),
-        2,
-      );
-      printerService.printer.printNewLine();
-      printerService.printer.printCustom(
-        "Terima kasih telah berbelanja!",
-        1,
-        1,
-      );
-
-      if (widget.editMode) {
-        printerService.printer.printCustom("--- TRANSAKSI DIUPDATE ---", 0, 1);
-      }
-
-      printerService.printer.printNewLine();
-      printerService.printer.printNewLine();
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Error print: $e")));
-    }
-  }
-
-  /// ✅ CHECKOUT - Support untuk mode edit
-  Future<void> _checkout() async {
-    if (cart.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Keranjang kosong")));
-      return;
-    }
-
-    final db = await dbHelper.database;
-    setState(() => isLoading = true);
-
-    try {
-      int userId = 1;
-      int transactionId = widget.transactionId ?? 0;
-
-      await db.transaction((txn) async {
-        if (widget.editMode && widget.transactionId != null) {
-          final oldItems = await txn.rawQuery(
-            '''
-            SELECT * FROM transaction_items WHERE transaction_id = ?
-          ''',
-            [widget.transactionId],
-          );
-
-          for (var oldItem in oldItems) {
-            String oldPriceType =
-                (oldItem['price_type']?.toString() ?? 'retail');
-            int oldQuantity =
-                int.tryParse(oldItem['quantity']?.toString() ?? '0') ?? 0;
-            int oldProductId =
-                int.tryParse(oldItem['product_id']?.toString() ?? '0') ?? 0;
-
-            if (oldPriceType == 'retail') {
-              await txn.rawUpdate(
-                'UPDATE products SET stock = stock + ?, stock_retail = stock_retail + ? WHERE id = ?',
-                [oldQuantity, oldQuantity, oldProductId],
-              );
-            } else {
-              await txn.rawUpdate(
-                'UPDATE products SET stock = stock + ?, stock_wholesale = stock_wholesale + ? WHERE id = ?',
-                [oldQuantity, oldQuantity, oldProductId],
-              );
-            }
-          }
-
-          await txn.delete(
-            'transaction_items',
-            where: 'transaction_id = ?',
-            whereArgs: [widget.transactionId],
-          );
-
-          await txn.update(
-            'transactions',
-            {'total_amount': totalAmount},
-            where: 'id = ?',
-            whereArgs: [widget.transactionId],
-          );
-        } else {
-          transactionId = await txn.insert('transactions', {
-            'user_id': userId,
-            'total_amount': totalAmount,
-            'created_at': DateTime.now().toIso8601String(),
-          });
-        }
-
-        for (var item in cart) {
-          String priceType = item['price_type']?.toString() ?? 'retail';
-
-          await txn.insert('transaction_items', {
-            'transaction_id': transactionId,
-            'product_id': item['id'],
-            'quantity': item['qty'],
-            'price': item['price'],
-            'price_type': priceType,
-          });
-
-          if (priceType == 'retail') {
-            await txn.rawUpdate(
-              'UPDATE products SET stock = stock - ?, stock_retail = stock_retail - ? WHERE id = ?',
-              [item['qty'], item['qty'], item['id']],
-            );
-          } else {
-            await txn.rawUpdate(
-              'UPDATE products SET stock = stock - ?, stock_wholesale = stock_wholesale - ? WHERE id = ?',
-              [item['qty'], item['qty'], item['id']],
-            );
-          }
-        }
-      });
-
-      await _printReceiptBluetooth(transactionId, List.from(cart), totalAmount);
-
-      setState(() {
-        cart.clear();
-        totalAmount = 0;
-      });
-
-      _showTransactionSuccessDialog(transactionId);
-    } catch (e) {
-      debugPrint("Error checkout: $e");
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Gagal menyimpan transaksi: $e")));
-    } finally {
-      setState(() => isLoading = false);
-    }
-  }
-
-  void _showTransactionSuccessDialog(int transactionId) async {
-    // ✅ Dapatkan nomor urut per hari untuk ditampilkan
-    final dailyNumber = await _getDailyTransactionNumber(transactionId);
-
-    if (!mounted) return;
-
+  void _clearCart() {
     showDialog(
       context: context,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Column(
-          children: [
-            const Icon(Icons.check_circle, color: Colors.green, size: 64),
-            const SizedBox(height: 8),
-            Text(
-              widget.editMode ? "Edit Berhasil" : "Transaksi Berhasil",
-              style: GoogleFonts.poppins(
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          widget.editMode
-              ? "Transaksi #$dailyNumber berhasil diupdate!"
-              : "Transaksi #$dailyNumber berhasil! Struk telah dicetak.",
-          style: GoogleFonts.poppins(),
-          textAlign: TextAlign.center,
-        ),
+      builder: (context) => AlertDialog(
+        title: const Text('Konfirmasi'),
+        content: const Text('Yakin ingin mengosongkan keranjang?'),
         actions: [
-          Center(
-            child: ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                if (widget.editMode) {
-                  Navigator.pop(context, true);
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: const Text("OK", style: TextStyle(color: Colors.white)),
-            ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                cart.clear();
+                _calculateTotal();
+              });
+              Navigator.pop(context);
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Hapus', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
     );
   }
 
+  int _getCrossAxisCount(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    if (width > 1200) return 6;
+    if (width > 900) return 4;
+    if (width > 600) return 3;
+    return 2;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: _onWillPop,
-      child: Scaffold(
-        backgroundColor: Colors.grey.shade100,
-        appBar: AppBar(
-          elevation: 0,
-          title: widget.editMode
-              ? FutureBuilder<int>(
-                  future: dailyTransactionNumber != null
-                      ? Future.value(dailyTransactionNumber)
-                      : (widget.transactionId != null
-                            ? _getDailyTransactionNumber(widget.transactionId!)
-                            : Future.value(0)),
-                  builder: (context, snapshot) {
-                    final number = snapshot.data ?? widget.transactionId ?? 0;
-                    return Text(
-                      "Edit Transaksi #$number",
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black,
-                      ),
-                    );
-                  },
-                )
-              : Text(
-                  "Kasir",
-                  style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black,
-                  ),
-                ),
-          backgroundColor: Colors.transparent,
-          actions: [
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Center(
-                child: Icon(
-                  Icons.print,
-                  color: printerService.connected ? Colors.green : Colors.grey,
-                  size: 24,
-                ),
-              ),
-            ),
-            if (!widget.editMode)
-              IconButton(
-                icon: const Icon(Icons.qr_code_scanner, color: Colors.white),
-                tooltip: "Scan Barcode",
-                onPressed: _scanBarcode,
-              ),
-          ],
-          flexibleSpace: Container(
-            decoration: const BoxDecoration(
-              image: DecorationImage(
-                image: AssetImage("assets/images/bgwarung2.jpg"),
-                fit: BoxFit.cover,
-              ),
+    return Scaffold(
+      backgroundColor: Colors.grey.shade100,
+      appBar: AppBar(
+        elevation: 0,
+        title: Text(
+          widget.editMode ? 'Edit Pembelian' : 'Kasir',
+          style: GoogleFonts.poppins(
+            fontWeight: FontWeight.w600,
+            color: Colors.black,
+          ),
+        ),
+        backgroundColor: Colors.transparent,
+        iconTheme: const IconThemeData(color: Colors.black),
+        centerTitle: true,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            image: DecorationImage(
+              image: AssetImage("assets/images/bgwarung2.jpg"),
+              fit: BoxFit.cover,
             ),
           ),
         ),
-        body: Column(
-          children: [
-            if (widget.editMode)
-              Container(
-                color: Colors.orange.shade100,
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    const Icon(Icons.edit, color: Colors.orange, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: FutureBuilder<int>(
-                        future: dailyTransactionNumber != null
-                            ? Future.value(dailyTransactionNumber)
-                            : (widget.transactionId != null
-                                  ? _getDailyTransactionNumber(
-                                      widget.transactionId!,
-                                    )
-                                  : Future.value(0)),
-                        builder: (context, snapshot) {
-                          final number =
-                              snapshot.data ?? widget.transactionId ?? 0;
-                          return Text(
-                            "Mode Edit: Ubah produk transaksi #$number",
-                            style: GoogleFonts.poppins(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.orange.shade900,
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-            if (!printerService.connected)
-              Container(
-                color: Colors.red.shade50,
-                padding: const EdgeInsets.all(8),
-                child: Row(
-                  children: [
-                    const Icon(Icons.warning, color: Colors.red, size: 16),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        "Printer belum terhubung. Hubungkan di halaman utama.",
-                        style: GoogleFonts.poppins(
-                          fontSize: 11,
-                          color: Colors.red.shade900,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: TextField(
-                controller: searchController,
-                onChanged: _searchProducts,
-                decoration: InputDecoration(
-                  hintText: "Cari produk nama / barcode...",
-                  prefixIcon: const Icon(Icons.search),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
+        actions: [
+          if (cart.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.delete_sweep),
+              onPressed: _clearCart,
+              tooltip: 'Kosongkan Keranjang',
             ),
-            Expanded(
-              child: filteredProducts.isEmpty
-                  ? const Center(child: Text("Produk tidak ditemukan"))
-                  : GridView.builder(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
+        ],
+      ),
+      body: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: Colors.white,
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Cari produk...',
+                      prefixIcon: const Icon(Icons.search),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            crossAxisSpacing: 12,
-                            mainAxisSpacing: 12,
-                            childAspectRatio: 0.75,
-                          ),
-                      itemCount: filteredProducts.length,
-                      itemBuilder: (context, index) {
-                        final product = filteredProducts[index];
-                        final stockRetail = product['stock_retail'] ?? 0;
-                        final stockWholesale = product['stock_wholesale'] ?? 0;
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                    ),
+                    onChanged: _filterProducts,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton.icon(
+                  onPressed: _scanBarcode,
+                  icon: const Icon(Icons.qr_code_scanner),
+                  label: const Text('Scan'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
 
-                        return GestureDetector(
-                          onTap: () => _showPriceOptionDialog(product),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.blueAccent,
-                              borderRadius: BorderRadius.circular(16),
-                            ),
+          Expanded(
+            child: isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : filteredProducts.isEmpty
+                ? Center(
+                    child: Text(
+                      'Produk tidak ditemukan',
+                      style: GoogleFonts.poppins(color: Colors.grey.shade600),
+                    ),
+                  )
+                : GridView.builder(
+                    padding: const EdgeInsets.all(16),
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: _getCrossAxisCount(context),
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                      childAspectRatio: 0.75,
+                    ),
+                    itemCount: filteredProducts.length,
+                    itemBuilder: (context, index) {
+                      final product = filteredProducts[index];
+                      final imagePath = product['image_path'];
+
+                      return Card(
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: InkWell(
+                          onTap: () => _showUnitSelectionDialog(product),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Padding(
                             padding: const EdgeInsets.all(12),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Icon(
-                                  Icons.inventory_2,
-                                  color: Colors.white,
-                                  size: 32,
+                                Container(
+                                  width: double.infinity,
+                                  height: 80,
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.shade50,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child:
+                                      imagePath != null &&
+                                          imagePath.toString().isNotEmpty
+                                      ? ClipRRect(
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          child: Image.file(
+                                            File(imagePath.toString()),
+                                            fit: BoxFit.cover,
+                                            errorBuilder:
+                                                (context, error, stackTrace) {
+                                                  return Icon(
+                                                    Icons.inventory_2,
+                                                    size: 40,
+                                                    color: Colors.blue.shade700,
+                                                  );
+                                                },
+                                          ),
+                                        )
+                                      : Icon(
+                                          Icons.inventory_2,
+                                          size: 40,
+                                          color: Colors.blue.shade700,
+                                        ),
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
                                   product['name'],
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
-                                  style: GoogleFonts.poppins(
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                    fontSize: 14,
-                                  ),
                                 ),
                                 const Spacer(),
                                 Text(
-                                  "Ecer: ${formatCurrency.format(product['price_retail'])}",
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 11,
+                                  formatCurrency.format(product['base_price']),
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.green.shade700,
                                   ),
                                 ),
                                 Text(
-                                  "Grosir: ${formatCurrency.format(product['price_wholesale'])}",
-                                  style: const TextStyle(
-                                    color: Colors.white70,
+                                  'per ${product['base_unit']}',
+                                  style: GoogleFonts.poppins(
                                     fontSize: 11,
+                                    color: Colors.grey.shade600,
                                   ),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 3,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.green.withOpacity(0.3),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: Text(
-                                        "E: $stockRetail",
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 3,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.orange.withOpacity(0.3),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: Text(
-                                        "G: $stockWholesale",
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
                                 ),
                               ],
                             ),
                           ),
-                        );
-                      },
-                    ),
-            ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
 
+          if (cart.isNotEmpty)
             Container(
               constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.4,
+                maxHeight: MediaQuery.of(context).size.height * 0.5,
               ),
               decoration: BoxDecoration(
                 color: Colors.white,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, -2),
+                    color: Colors.black.withValues(alpha: 0.1),
+                    blurRadius: 10,
+                    offset: const Offset(0, -5),
                   ),
                 ],
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (cart.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: Colors.grey[300],
-                              borderRadius: BorderRadius.circular(2),
+                  // Header Keranjang
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      border: Border(
+                        bottom: BorderSide(color: Colors.grey.shade300),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.shopping_cart,
+                              color: Colors.blue.shade700,
+                              size: 20,
                             ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Keranjang Belanja',
+                              style: GoogleFonts.poppins(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.blue.shade700,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            "${cart.length} item di keranjang",
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade700,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '${cart.length} item',
                             style: GoogleFonts.poppins(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
-                              color: Colors.grey[600],
+                              color: Colors.white,
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
+                  ),
 
-                  if (cart.isNotEmpty)
-                    Flexible(
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: cart.length,
-                        itemBuilder: (context, index) {
-                          final item = cart[index];
-                          final priceType = item['price_type'] ?? 'retail';
+                  // Daftar Item di Keranjang
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      itemCount: cart.length,
+                      separatorBuilder: (context, index) =>
+                          Divider(height: 1, color: Colors.grey.shade200),
+                      itemBuilder: (context, index) {
+                        final item = cart[index];
+                        final qty = item['qty'] is int
+                            ? (item['qty'] as int).toDouble()
+                            : item['qty'] as double;
+                        final price = (item['price'] as int).toDouble();
+                        final subtotal = (price * qty).round();
 
-                          return ListTile(
-                            contentPadding: const EdgeInsets.symmetric(
-                              vertical: 4,
-                            ),
-                            title: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    item['name'],
-                                    style: GoogleFonts.poppins(fontSize: 14),
-                                  ),
+                        // Format qty: hilangkan .0 jika bilangan bulat
+                        final qtyText = qty % 1 == 0
+                            ? qty.toInt().toString()
+                            : qty.toString().replaceAll('.', ',');
+
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              // Info Produk
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item['name'],
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${formatCurrency.format(price)} / ${item['unit']}',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 11,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      formatCurrency.format(subtotal),
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.green.shade700,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: priceType == 'retail'
-                                        ? Colors.green.withOpacity(0.2)
-                                        : Colors.orange.withOpacity(0.2),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    priceType == 'retail' ? 'E' : 'G',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      color: priceType == 'retail'
-                                          ? Colors.green
-                                          : Colors.orange,
+                              ),
+                              const SizedBox(width: 8),
+                              // Kontrol Quantity
+                              Column(
+                                children: [
+                                  // Tombol Delete
+                                  IconButton(
+                                    onPressed: () {
+                                      setState(() {
+                                        final removedItem = cart[index];
+                                        cart.removeAt(index);
+                                        _calculateTotal();
+
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).clearSnackBars();
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              '${removedItem['name']} dihapus',
+                                            ),
+                                            backgroundColor: Colors.red,
+                                            duration: const Duration(
+                                              seconds: 2,
+                                            ),
+                                            action: SnackBarAction(
+                                              label: 'BATAL',
+                                              textColor: Colors.white,
+                                              onPressed: () {
+                                                setState(() {
+                                                  cart.insert(
+                                                    index,
+                                                    removedItem,
+                                                  );
+                                                  _calculateTotal();
+                                                });
+                                              },
+                                            ),
+                                          ),
+                                        );
+                                      });
+                                    },
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.red,
+                                      size: 20,
+                                    ),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minWidth: 32,
+                                      minHeight: 32,
                                     ),
                                   ),
-                                ),
-                              ],
-                            ),
-                            subtitle: Text(
-                              formatCurrency.format(item['price']),
-                              style: GoogleFonts.poppins(fontSize: 12),
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.remove_circle_outline,
-                                    size: 20,
+                                  const SizedBox(height: 4),
+                                  // Kontrol +/-
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      border: Border.all(
+                                        color: Colors.grey.shade300,
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        // Tombol Minus
+                                        InkWell(
+                                          onTap: () {
+                                            setState(() {
+                                              if (qty > 1) {
+                                                cart[index]['qty'] = qty - 1;
+                                              } else if (qty > 0.1) {
+                                                // Kurangi 0.1 jika qty < 1
+                                                final newQty =
+                                                    (qty * 10 - 1) / 10;
+                                                cart[index]['qty'] = newQty > 0
+                                                    ? newQty
+                                                    : 0.1;
+                                              }
+                                              _calculateTotal();
+                                            });
+                                          },
+                                          child: Container(
+                                            padding: const EdgeInsets.all(6),
+                                            child: Icon(
+                                              Icons.remove,
+                                              size: 16,
+                                              color: Colors.grey.shade700,
+                                            ),
+                                          ),
+                                        ),
+                                        // Display Quantity (tap untuk edit manual)
+                                        InkWell(
+                                          onTap: () {
+                                            _showEditQuantityDialog(
+                                              item,
+                                              index,
+                                            );
+                                          },
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 6,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.grey.shade50,
+                                              border: Border.symmetric(
+                                                vertical: BorderSide(
+                                                  color: Colors.grey.shade300,
+                                                ),
+                                              ),
+                                            ),
+                                            child: Text(
+                                              qtyText,
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        // Tombol Plus
+                                        InkWell(
+                                          onTap: () {
+                                            setState(() {
+                                              if (qty >= 1) {
+                                                cart[index]['qty'] = qty + 1;
+                                              } else {
+                                                // Tambah 0.1 jika qty < 1
+                                                cart[index]['qty'] =
+                                                    (qty * 10 + 1) / 10;
+                                              }
+                                              _calculateTotal();
+                                            });
+                                          },
+                                          child: Container(
+                                            padding: const EdgeInsets.all(6),
+                                            child: Icon(
+                                              Icons.add,
+                                              size: 16,
+                                              color: Colors.grey.shade700,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  onPressed: () => _updateQty(index, -1),
-                                ),
-                                Text(
-                                  item['qty'].toString(),
-                                  style: GoogleFonts.poppins(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.add_circle_outline,
-                                    size: 20,
-                                  ),
-                                  onPressed: () => _updateQty(index, 1),
-                                ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.delete,
-                                    color: Colors.red,
-                                    size: 20,
-                                  ),
-                                  onPressed: () => _removeItem(index),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
+                                ],
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+
+                  // Total dan Tombol Checkout
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        top: BorderSide(color: Colors.grey.shade300, width: 2),
                       ),
                     ),
-
-                  if (cart.isNotEmpty) const Divider(height: 1),
-
-                  Padding(
-                    padding: const EdgeInsets.all(16),
                     child: Column(
                       children: [
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              "Total",
+                              'Total Belanja',
                               style: GoogleFonts.poppins(
-                                fontSize: 18,
+                                fontSize: 16,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
                             Text(
                               formatCurrency.format(totalAmount),
                               style: GoogleFonts.poppins(
-                                fontSize: 20,
+                                fontSize: 22,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.blueAccent,
+                                color: Colors.green.shade700,
                               ),
                             ),
                           ],
@@ -1057,38 +1000,69 @@ class _CashierScreenState extends State<CashierScreen> {
                         const SizedBox(height: 12),
                         SizedBox(
                           width: double.infinity,
-                          height: 50,
-                          child: ElevatedButton.icon(
-                            icon: isLoading
-                                ? const CircularProgressIndicator(
-                                    color: Colors.white,
-                                    strokeWidth: 2,
-                                  )
-                                : Icon(
-                                    widget.editMode
-                                        ? Icons.save
-                                        : Icons.payment,
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              final result = await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => CheckoutScreen(
+                                    cart: cart,
+                                    totalAmount: totalAmount,
+                                    editMode: widget.editMode,
+                                    transactionId: widget.transactionId,
+                                    dailyNumber: dailyTransactionNumber,
                                   ),
-                            label: Text(
-                              isLoading
-                                  ? "Memproses..."
-                                  : (widget.editMode
-                                        ? "Simpan Perubahan"
-                                        : "Checkout"),
-                              style: GoogleFonts.poppins(
-                                fontSize: 16,
-                                color: Colors.white,
-                              ),
-                            ),
+                                ),
+                              );
+
+                              if (result == true && mounted) {
+                                // Jika edit mode, kembali ke halaman sebelumnya
+                                if (widget.editMode) {
+                                  if (context.mounted) {
+                                    Navigator.pop(context, true);
+                                  }
+                                } else {
+                                  // Jika transaksi baru, kosongkan keranjang
+                                  setState(() {
+                                    cart.clear();
+                                    _calculateTotal();
+                                  });
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Transaksi berhasil! Siap untuk transaksi baru.',
+                                      ),
+                                      backgroundColor: Colors.green,
+                                      duration: Duration(seconds: 2),
+                                    ),
+                                  );
+                                }
+                              }
+                            },
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: widget.editMode
-                                  ? Colors.orange
-                                  : Colors.blueAccent,
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
+                                borderRadius: BorderRadius.circular(12),
                               ),
                             ),
-                            onPressed: isLoading ? null : _checkout,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.payment, size: 20),
+                                const SizedBox(width: 8),
+                                Text(
+                                  widget.editMode
+                                      ? 'Update Pembelian'
+                                      : 'Checkout',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],
@@ -1097,29 +1071,35 @@ class _CashierScreenState extends State<CashierScreen> {
                 ],
               ),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }
 }
 
-class CashierBarcodeScannerScreen extends StatelessWidget {
-  const CashierBarcodeScannerScreen({super.key});
+class BarcodeScannerScreen extends StatefulWidget {
+  const BarcodeScannerScreen({super.key});
 
+  @override
+  State<BarcodeScannerScreen> createState() => _BarcodeScannerScreenState();
+}
+
+class _BarcodeScannerScreenState extends State<BarcodeScannerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Scan Produk"),
-        backgroundColor: Colors.blueAccent,
+        title: const Text('Scan Barcode'),
+        backgroundColor: Colors.black,
       ),
       body: MobileScanner(
         onDetect: (capture) {
-          final barcodes = capture.barcodes;
-          if (barcodes.isNotEmpty) {
-            final value = barcodes.first.rawValue;
-            Navigator.pop(context, value);
+          final List<Barcode> barcodes = capture.barcodes;
+          for (final barcode in barcodes) {
+            if (barcode.rawValue != null) {
+              Navigator.pop(context, barcode.rawValue);
+              return;
+            }
           }
         },
       ),

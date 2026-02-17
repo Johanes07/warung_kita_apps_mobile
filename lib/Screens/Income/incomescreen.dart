@@ -23,8 +23,6 @@ class _IncomeScreenState extends State<IncomeScreen> {
 
   DateTimeRange? selectedDateRange;
   int totalIncome = 0;
-  int retailIncome = 0;
-  int wholesaleIncome = 0;
   List<Map<String, dynamic>> transactions = [];
   bool isLoading = true;
 
@@ -57,28 +55,12 @@ class _IncomeScreenState extends State<IncomeScreen> {
       SELECT SUM(total_amount) as total FROM transactions t $whereClause
     ''', whereArgs);
 
-    final retailResult = await db.rawQuery('''
-      SELECT SUM(ti.quantity * ti.price) as total
-      FROM transaction_items ti
-      JOIN transactions t ON ti.transaction_id = t.id
-      $whereClause AND ti.price_type = 'retail'
-    ''', whereArgs);
-
-    final wholesaleResult = await db.rawQuery('''
-      SELECT SUM(ti.quantity * ti.price) as total
-      FROM transaction_items ti
-      JOIN transactions t ON ti.transaction_id = t.id
-      $whereClause AND ti.price_type = 'wholesale'
-    ''', whereArgs);
-
     final listResult = await db.rawQuery('''
       SELECT * FROM transactions t $whereClause ORDER BY t.created_at DESC
     ''', whereArgs);
 
     setState(() {
       totalIncome = (totalResult.first['total'] ?? 0) as int;
-      retailIncome = (retailResult.first['total'] ?? 0) as int;
-      wholesaleIncome = (wholesaleResult.first['total'] ?? 0) as int;
       transactions = listResult;
       isLoading = false;
     });
@@ -91,7 +73,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
 
     final result = await db.rawQuery(
       '''
-      SELECT ti.*, p.name, p.price_retail, p.price_wholesale, p.stock_retail, p.stock_wholesale
+      SELECT ti.*, p.name, p.base_unit, p.stock
       FROM transaction_items ti
       JOIN products p ON ti.product_id = p.id
       WHERE ti.transaction_id = ?
@@ -102,7 +84,6 @@ class _IncomeScreenState extends State<IncomeScreen> {
     return result;
   }
 
-  /// ✅ MENGHITUNG NOMOR TRANSAKSI PER HARI
   Future<int> _getDailyTransactionNumber(Map<String, dynamic> trx) async {
     final db = await dbHelper.database;
 
@@ -110,7 +91,6 @@ class _IncomeScreenState extends State<IncomeScreen> {
       'yyyy-MM-dd',
     ).format(DateTime.parse(trx['created_at']));
 
-    // Hitung berapa transaksi di hari yang sama sebelum transaksi ini (termasuk transaksi ini)
     final result = await db.rawQuery(
       '''
       SELECT COUNT(*) as count FROM transactions
@@ -144,18 +124,19 @@ class _IncomeScreenState extends State<IncomeScreen> {
     }
   }
 
-  /// ✅ CETAK ULANG STRUK - Menggunakan PrinterService
   Future<void> _reprintReceipt(Map<String, dynamic> trx) async {
     if (!printerService.connected || printerService.selectedDevice == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Printer belum terhubung. Silakan hubungkan printer di halaman utama.",
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Printer belum terhubung. Silakan hubungkan printer di halaman utama.",
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
           ),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 3),
-        ),
-      );
+        );
+      }
       return;
     }
 
@@ -185,8 +166,11 @@ class _IncomeScreenState extends State<IncomeScreen> {
         final name = item['name'];
         final qty = item['quantity'];
         final price = item['price'];
-        final subtotal = qty * price;
-        final priceType = item['price_type'] ?? 'retail';
+        final unit = item['unit_name'] ?? 'pcs';
+        final subtotal = (qty * price).round();
+
+        final qtyStr = (qty is double ? qty : (qty as num).toDouble())
+            .toStringAsFixed((qty % 1 == 0) ? 0 : 1);
 
         printerService.printer.printLeftRight(
           name,
@@ -194,7 +178,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
           1,
         );
         printerService.printer.printCustom(
-          "$qty x ${formatCurrency.format(price)} (${priceType == 'retail' ? 'Eceran' : 'Grosir'})",
+          "$qtyStr $unit x ${formatCurrency.format(price)}",
           0,
           0,
         );
@@ -206,6 +190,30 @@ class _IncomeScreenState extends State<IncomeScreen> {
         formatCurrency.format(trx['total_amount']),
         2,
       );
+
+      final paymentMethod = trx['payment_method'] ?? 'cash';
+      final cashReceived = trx['cash_received'] ?? 0;
+      final changeAmount = trx['change_amount'] ?? 0;
+
+      printerService.printer.printLeftRight(
+        "METODE",
+        paymentMethod == 'cash' ? 'TUNAI' : 'QRIS',
+        1,
+      );
+
+      if (paymentMethod == 'cash' && cashReceived > 0) {
+        printerService.printer.printLeftRight(
+          "TUNAI",
+          formatCurrency.format(cashReceived),
+          1,
+        );
+        printerService.printer.printLeftRight(
+          "KEMBALI",
+          formatCurrency.format(changeAmount),
+          1,
+        );
+      }
+
       printerService.printer.printNewLine();
       printerService.printer.printCustom(
         "Terima kasih telah berbelanja!",
@@ -216,43 +224,46 @@ class _IncomeScreenState extends State<IncomeScreen> {
       printerService.printer.printNewLine();
       printerService.printer.printNewLine();
 
-      Navigator.pop(context);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Struk Transaksi #$dailyNumber berhasil dicetak"),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Struk Transaksi #$dailyNumber berhasil dicetak"),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Gagal cetak struk: $e")));
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Gagal cetak struk: $e")));
+      }
     }
   }
 
-  /// ✅ EDIT TRANSAKSI - NAVIGASI KE CASHIER SCREEN
   Future<void> _editTransaction(Map<String, dynamic> trx) async {
     final items = await _getTransactionItems(trx['id']);
 
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => CashierScreen(
-          editMode: true,
-          transactionId: trx['id'],
-          existingCart: items,
+    if (mounted) {
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => CashierScreen(
+            editMode: true,
+            transactionId: trx['id'],
+            existingCart: items,
+          ),
         ),
-      ),
-    );
+      );
 
-    if (result == true) {
-      _loadIncomeData();
+      if (result == true) {
+        _loadIncomeData();
+      }
     }
   }
 
-  /// ✅ DIALOG AKSI TRANSAKSI (Lihat Detail, Edit, atau Cetak)
   void _showTransactionActions(Map<String, dynamic> trx) async {
     final dailyNumber = await _getDailyTransactionNumber(trx);
 
@@ -291,9 +302,53 @@ class _IncomeScreenState extends State<IncomeScreen> {
                 ).format(DateTime.parse(trx['created_at'])),
                 style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey),
               ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: (trx['payment_method'] ?? 'cash') == 'cash'
+                      ? Colors.green.shade50
+                      : Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: (trx['payment_method'] ?? 'cash') == 'cash'
+                        ? Colors.green.shade200
+                        : Colors.blue.shade200,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      (trx['payment_method'] ?? 'cash') == 'cash'
+                          ? Icons.payments
+                          : Icons.qr_code_2,
+                      size: 16,
+                      color: (trx['payment_method'] ?? 'cash') == 'cash'
+                          ? Colors.green.shade700
+                          : Colors.blue.shade700,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      (trx['payment_method'] ?? 'cash') == 'cash'
+                          ? 'Cash'
+                          : 'QRIS',
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: (trx['payment_method'] ?? 'cash') == 'cash'
+                            ? Colors.green.shade700
+                            : Colors.blue.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 20),
 
-              /// ✅ Tombol Lihat Detail
               ListTile(
                 leading: const CircleAvatar(
                   backgroundColor: Colors.blue,
@@ -310,7 +365,6 @@ class _IncomeScreenState extends State<IncomeScreen> {
                 },
               ),
 
-              /// ✅ Tombol Edit Transaksi
               ListTile(
                 leading: const CircleAvatar(
                   backgroundColor: Colors.orange,
@@ -327,7 +381,6 @@ class _IncomeScreenState extends State<IncomeScreen> {
                 },
               ),
 
-              /// ✅ Tombol Cetak Ulang
               ListTile(
                 leading: CircleAvatar(
                   backgroundColor: printerService.connected
@@ -361,7 +414,6 @@ class _IncomeScreenState extends State<IncomeScreen> {
     );
   }
 
-  /// Dialog Detail Transaksi
   void _showTransactionDetail(Map<String, dynamic> trx) async {
     final items = await _getTransactionItems(trx['id']);
     final dailyNumber = await _getDailyTransactionNumber(trx);
@@ -384,7 +436,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withValues(alpha: 0.1),
                   blurRadius: 20,
                   offset: const Offset(0, 10),
                 ),
@@ -393,7 +445,6 @@ class _IncomeScreenState extends State<IncomeScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Header
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -409,7 +460,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
+                          color: Colors.white.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Icon(
@@ -434,8 +485,101 @@ class _IncomeScreenState extends State<IncomeScreen> {
                             Text(
                               "#$dailyNumber",
                               style: GoogleFonts.poppins(
-                                color: Colors.white.withOpacity(0.9),
+                                color: Colors.white.withValues(alpha: 0.9),
                                 fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${items.length} item',
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Info Tanggal dan Metode Pembayaran
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.access_time,
+                        size: 16,
+                        color: Colors.grey.shade600,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        DateFormat(
+                          'dd MMM yyyy, HH:mm',
+                        ).format(DateTime.parse(trx['created_at'])),
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: (trx['payment_method'] ?? 'cash') == 'cash'
+                              ? Colors.green.shade50
+                              : Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: (trx['payment_method'] ?? 'cash') == 'cash'
+                                ? Colors.green.shade200
+                                : Colors.blue.shade200,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              (trx['payment_method'] ?? 'cash') == 'cash'
+                                  ? Icons.payments
+                                  : Icons.qr_code_2,
+                              size: 14,
+                              color: (trx['payment_method'] ?? 'cash') == 'cash'
+                                  ? Colors.green.shade700
+                                  : Colors.blue.shade700,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              (trx['payment_method'] ?? 'cash') == 'cash'
+                                  ? 'Cash'
+                                  : 'QRIS',
+                              style: GoogleFonts.poppins(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color:
+                                    (trx['payment_method'] ?? 'cash') == 'cash'
+                                    ? Colors.green.shade700
+                                    : Colors.blue.shade700,
                               ),
                             ),
                           ],
@@ -444,9 +588,8 @@ class _IncomeScreenState extends State<IncomeScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
 
-                // Content
                 items.isEmpty
                     ? Padding(
                         padding: const EdgeInsets.all(32),
@@ -470,7 +613,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
                       )
                     : ConstrainedBox(
                         constraints: BoxConstraints(
-                          maxHeight: MediaQuery.of(context).size.height * 0.5,
+                          maxHeight: MediaQuery.of(context).size.height * 0.4,
                         ),
                         child: ListView.separated(
                           shrinkWrap: true,
@@ -479,8 +622,16 @@ class _IncomeScreenState extends State<IncomeScreen> {
                               Divider(color: Colors.grey.shade200, height: 1),
                           itemBuilder: (context, idx) {
                             final item = items[idx];
-                            final priceType = item['price_type'] ?? 'retail';
-                            final isRetail = priceType == 'retail';
+                            final qty = item['quantity'] is int
+                                ? (item['quantity'] as int).toDouble()
+                                : item['quantity'] as double;
+                            final price = (item['price'] as int).toDouble();
+                            final subtotal = (price * qty).round();
+
+                            // Format qty: hilangkan .0 jika bilangan bulat
+                            final qtyText = qty % 1 == 0
+                                ? qty.toInt().toString()
+                                : qty.toString().replaceAll('.', ',');
 
                             return Container(
                               padding: const EdgeInsets.symmetric(
@@ -490,13 +641,13 @@ class _IncomeScreenState extends State<IncomeScreen> {
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  // Number badge
+                                  // Nomor urut
                                   Container(
-                                    width: 32,
-                                    height: 32,
+                                    width: 28,
+                                    height: 28,
                                     decoration: BoxDecoration(
                                       color: Colors.blue.shade50,
-                                      borderRadius: BorderRadius.circular(8),
+                                      borderRadius: BorderRadius.circular(6),
                                     ),
                                     alignment: Alignment.center,
                                     child: Text(
@@ -510,7 +661,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
                                   ),
                                   const SizedBox(width: 12),
 
-                                  // Product info
+                                  // Info Produk
                                   Expanded(
                                     child: Column(
                                       crossAxisAlignment:
@@ -519,10 +670,12 @@ class _IncomeScreenState extends State<IncomeScreen> {
                                         Text(
                                           item['name'],
                                           style: GoogleFonts.poppins(
-                                            fontSize: 14,
+                                            fontSize: 13,
                                             fontWeight: FontWeight.w600,
                                             color: Colors.grey.shade800,
                                           ),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
                                         ),
                                         const SizedBox(height: 4),
                                         Row(
@@ -530,95 +683,44 @@ class _IncomeScreenState extends State<IncomeScreen> {
                                             Container(
                                               padding:
                                                   const EdgeInsets.symmetric(
-                                                    horizontal: 8,
-                                                    vertical: 3,
+                                                    horizontal: 6,
+                                                    vertical: 2,
                                                   ),
                                               decoration: BoxDecoration(
-                                                color: isRetail
-                                                    ? Colors.green.shade50
-                                                    : Colors.orange.shade50,
+                                                color: Colors.grey.shade100,
                                                 borderRadius:
-                                                    BorderRadius.circular(6),
-                                                border: Border.all(
-                                                  color: isRetail
-                                                      ? Colors.green.shade200
-                                                      : Colors.orange.shade200,
-                                                  width: 1,
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              child: Text(
+                                                '$qtyText ${item['unit_name']}',
+                                                style: GoogleFonts.poppins(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Colors.grey.shade700,
                                                 ),
                                               ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Icon(
-                                                    isRetail
-                                                        ? Icons
-                                                              .shopping_bag_outlined
-                                                        : Icons
-                                                              .inventory_outlined,
-                                                    size: 10,
-                                                    color: isRetail
-                                                        ? Colors.green.shade700
-                                                        : Colors
-                                                              .orange
-                                                              .shade700,
-                                                  ),
-                                                  const SizedBox(width: 4),
-                                                  Text(
-                                                    isRetail
-                                                        ? 'Eceran'
-                                                        : 'Grosir',
-                                                    style: GoogleFonts.poppins(
-                                                      fontSize: 10,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                      color: isRetail
-                                                          ? Colors
-                                                                .green
-                                                                .shade700
-                                                          : Colors
-                                                                .orange
-                                                                .shade700,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
                                             ),
-                                            const SizedBox(width: 8),
+                                            const SizedBox(width: 6),
                                             Text(
-                                              "Qty: ${item['quantity']}",
+                                              '× ${formatCurrency.format(price)}',
                                               style: GoogleFonts.poppins(
-                                                fontSize: 12,
+                                                fontSize: 11,
                                                 color: Colors.grey.shade600,
                                               ),
                                             ),
                                           ],
                                         ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          formatCurrency.format(subtotal),
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.green.shade700,
+                                          ),
+                                        ),
                                       ],
                                     ),
-                                  ),
-
-                                  // Price
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      Text(
-                                        formatCurrency.format(
-                                          item['price'] * item['quantity'],
-                                        ),
-                                        style: GoogleFonts.poppins(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.blue.shade700,
-                                        ),
-                                      ),
-                                      Text(
-                                        "${formatCurrency.format(item['price'])} × ${item['quantity']}",
-                                        style: GoogleFonts.poppins(
-                                          fontSize: 10,
-                                          color: Colors.grey.shade500,
-                                        ),
-                                      ),
-                                    ],
                                   ),
                                 ],
                               ),
@@ -627,30 +729,85 @@ class _IncomeScreenState extends State<IncomeScreen> {
                         ),
                       ),
 
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
 
-                // Close button
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.grey.shade100,
-                      foregroundColor: Colors.grey.shade700,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: Text(
-                      "Tutup",
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                      ),
-                    ),
+                // Total
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.green.shade200),
                   ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        "Total Belanja",
+                        style: GoogleFonts.poppins(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade800,
+                        ),
+                      ),
+                      Text(
+                        formatCurrency.format(trx['total_amount']),
+                        style: GoogleFonts.poppins(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Tombol Aksi
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _editTransaction(trx);
+                        },
+                        icon: const Icon(Icons.edit, size: 18),
+                        label: const Text('Edit'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.orange,
+                          side: const BorderSide(color: Colors.orange),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.grey.shade100,
+                          foregroundColor: Colors.grey.shade700,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: Text(
+                          "Tutup",
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -675,7 +832,6 @@ class _IncomeScreenState extends State<IncomeScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
-          // ✅ Status printer (simplified)
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: Center(
@@ -712,7 +868,6 @@ class _IncomeScreenState extends State<IncomeScreen> {
                 physics: const AlwaysScrollableScrollPhysics(),
                 child: Column(
                   children: [
-                    // ✅ Banner status printer
                     if (!printerService.connected)
                       Container(
                         color: Colors.orange.shade50,
@@ -746,7 +901,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
                         borderRadius: BorderRadius.circular(14),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black12.withOpacity(0.05),
+                            color: Colors.black12.withValues(alpha: 0.05),
                             blurRadius: 8,
                             offset: const Offset(0, 4),
                           ),
@@ -792,87 +947,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
                       ),
                     ),
 
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.green.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.green.withOpacity(0.3),
-                                ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Icon(
-                                    Icons.shopping_bag,
-                                    color: Colors.green,
-                                    size: 30,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    "Pendapatan Eceran",
-                                    style: GoogleFonts.poppins(fontSize: 12),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    formatCurrency.format(retailIncome),
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.green,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.orange.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.orange.withOpacity(0.3),
-                                ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Icon(
-                                    Icons.store,
-                                    color: Colors.orange,
-                                    size: 30,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    "Pendapatan Grosir",
-                                    style: GoogleFonts.poppins(fontSize: 12),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    formatCurrency.format(wholesaleIncome),
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.orange,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 8),
 
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -889,7 +964,27 @@ class _IncomeScreenState extends State<IncomeScreen> {
                           ),
                           const SizedBox(height: 12),
                           transactions.isEmpty
-                              ? const Center(child: Text("Tidak ada transaksi"))
+                              ? Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(32),
+                                    child: Column(
+                                      children: [
+                                        Icon(
+                                          Icons.receipt_long_outlined,
+                                          size: 64,
+                                          color: Colors.grey.shade300,
+                                        ),
+                                        const SizedBox(height: 16),
+                                        Text(
+                                          "Tidak ada transaksi",
+                                          style: GoogleFonts.poppins(
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                )
                               : ListView.builder(
                                   shrinkWrap: true,
                                   physics: const NeverScrollableScrollPhysics(),
@@ -901,15 +996,27 @@ class _IncomeScreenState extends State<IncomeScreen> {
                                       builder: (context, snapshot) {
                                         final dailyNumber =
                                             snapshot.data ?? trx['id'];
+                                        final paymentMethod =
+                                            trx['payment_method'] ?? 'cash';
 
                                         return Card(
                                           margin: const EdgeInsets.only(
                                             bottom: 12,
                                           ),
                                           child: ListTile(
-                                            leading: const Icon(
-                                              Icons.receipt_long,
-                                              color: Colors.green,
+                                            leading: CircleAvatar(
+                                              backgroundColor:
+                                                  paymentMethod == 'cash'
+                                                  ? Colors.green.shade100
+                                                  : Colors.blue.shade100,
+                                              child: Icon(
+                                                paymentMethod == 'cash'
+                                                    ? Icons.payments
+                                                    : Icons.qr_code_2,
+                                                color: paymentMethod == 'cash'
+                                                    ? Colors.green
+                                                    : Colors.blue,
+                                              ),
                                             ),
                                             title: Text(
                                               "Transaksi #$dailyNumber",
@@ -917,14 +1024,57 @@ class _IncomeScreenState extends State<IncomeScreen> {
                                                 fontWeight: FontWeight.w600,
                                               ),
                                             ),
-                                            subtitle: Text(
-                                              DateFormat(
-                                                'dd MMM yyyy, HH:mm',
-                                              ).format(
-                                                DateTime.parse(
-                                                  trx['created_at'],
+                                            subtitle: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  DateFormat(
+                                                    'dd MMM yyyy, HH:mm',
+                                                  ).format(
+                                                    DateTime.parse(
+                                                      trx['created_at'],
+                                                    ),
+                                                  ),
                                                 ),
-                                              ),
+                                                const SizedBox(height: 4),
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 8,
+                                                        vertical: 2,
+                                                      ),
+                                                  decoration: BoxDecoration(
+                                                    color:
+                                                        paymentMethod == 'cash'
+                                                        ? Colors.green.shade50
+                                                        : Colors.blue.shade50,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          4,
+                                                        ),
+                                                  ),
+                                                  child: Text(
+                                                    paymentMethod == 'cash'
+                                                        ? 'Cash'
+                                                        : 'QRIS',
+                                                    style: GoogleFonts.poppins(
+                                                      fontSize: 10,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color:
+                                                          paymentMethod ==
+                                                              'cash'
+                                                          ? Colors
+                                                                .green
+                                                                .shade700
+                                                          : Colors
+                                                                .blue
+                                                                .shade700,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                             trailing: Text(
                                               formatCurrency.format(

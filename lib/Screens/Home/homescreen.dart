@@ -6,6 +6,7 @@ import 'package:warung_kita/Screens/Cashier/cashierscreen.dart';
 import 'package:warung_kita/Screens/History/historyscreen.dart';
 import 'package:warung_kita/Screens/Income/incomescreen.dart';
 import 'package:warung_kita/Screens/stock/stockscreen.dart';
+import 'package:warung_kita/Screens/Settings/settingsscreen.dart';
 import 'package:warung_kita/db/database_helper.dart';
 import 'package:warung_kita/Screens/Login/loginscreen.dart';
 import 'package:warung_kita/services/printer_service.dart';
@@ -265,6 +266,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 } else {
                   _showPrinterConnectionDialog();
                 }
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.settings, color: Colors.white),
+              tooltip: "Pengaturan",
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SettingsScreen(),
+                  ),
+                );
               },
             ),
             IconButton(
