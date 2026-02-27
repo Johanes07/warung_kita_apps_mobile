@@ -129,14 +129,33 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             'price': item['price'],
           });
 
-          // Update stock (kembalikan stok lama, kurangi stok baru)
-          final conversionRate = item['conversion_rate'] ?? 1.0;
-          final stockChange = item['qty'] * conversionRate;
-
-          await db.rawUpdate(
-            'UPDATE products SET stock = stock - ? WHERE id = ?',
-            [stockChange, item['id']],
+          // Update stock berdasarkan satuan yang dipilih
+          // Cek apakah ini satuan dasar atau satuan alternatif
+          final product = await db.query(
+            'products',
+            where: 'id = ?',
+            whereArgs: [item['id']],
           );
+
+          if (product.isNotEmpty) {
+            final baseUnit = product.first['base_unit'];
+
+            if (item['unit'] == baseUnit) {
+              // Satuan dasar - update stok produk
+              await db.rawUpdate(
+                'UPDATE products SET stock = stock - ? WHERE id = ?',
+                [item['qty'], item['id']],
+              );
+            } else {
+              // Satuan alternatif - update stok satuan alternatif
+              await db.rawUpdate(
+                '''UPDATE product_units 
+                   SET stock = stock - ? 
+                   WHERE product_id = ? AND unit_name = ?''',
+                [item['qty'], item['id'], item['unit']],
+              );
+            }
+          }
         }
 
         dailyNumber = widget.dailyNumber ?? transactionId;
@@ -161,14 +180,33 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             'price': item['price'],
           });
 
-          // Update stock based on conversion rate
-          final conversionRate = item['conversion_rate'] ?? 1.0;
-          final stockChange = item['qty'] * conversionRate;
-
-          await db.rawUpdate(
-            'UPDATE products SET stock = stock - ? WHERE id = ?',
-            [stockChange, item['id']],
+          // Update stock berdasarkan satuan yang dipilih
+          // Cek apakah ini satuan dasar atau satuan alternatif
+          final product = await db.query(
+            'products',
+            where: 'id = ?',
+            whereArgs: [item['id']],
           );
+
+          if (product.isNotEmpty) {
+            final baseUnit = product.first['base_unit'];
+
+            if (item['unit'] == baseUnit) {
+              // Satuan dasar - update stok produk
+              await db.rawUpdate(
+                'UPDATE products SET stock = stock - ? WHERE id = ?',
+                [item['qty'], item['id']],
+              );
+            } else {
+              // Satuan alternatif - update stok satuan alternatif
+              await db.rawUpdate(
+                '''UPDATE product_units 
+                   SET stock = stock - ? 
+                   WHERE product_id = ? AND unit_name = ?''',
+                [item['qty'], item['id'], item['unit']],
+              );
+            }
+          }
         }
 
         // Get daily transaction number

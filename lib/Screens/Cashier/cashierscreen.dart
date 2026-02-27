@@ -137,6 +137,7 @@ class _CashierScreenState extends State<CashierScreen> {
     );
 
     if (result != null && result is String) {
+      // Cari di barcode produk dasar
       final product = products.firstWhere(
         (p) => p['barcode'] == result,
         orElse: () => {},
@@ -144,11 +145,46 @@ class _CashierScreenState extends State<CashierScreen> {
 
       if (product.isNotEmpty) {
         _showUnitSelectionDialog(product);
+        return;
+      }
+
+      // Jika tidak ketemu, cari di barcode satuan alternatif
+      final db = await dbHelper.database;
+      final unitResult = await db.rawQuery(
+        '''
+        SELECT pu.*, p.id as product_id, p.name as product_name, 
+               p.base_unit, p.base_price, p.image_path as product_image
+        FROM product_units pu
+        JOIN products p ON pu.product_id = p.id
+        WHERE pu.barcode = ?
+        ''',
+        [result],
+      );
+
+      if (unitResult.isNotEmpty) {
+        final unitData = unitResult.first;
+        final productData = {
+          'id': unitData['product_id'],
+          'name': unitData['product_name'],
+          'base_unit': unitData['base_unit'],
+          'base_price': unitData['base_price'],
+          'image_path': unitData['product_image'],
+        };
+
+        // Langsung tambahkan satuan alternatif yang di-scan
+        final selectedUnit = {
+          'unit_name': unitData['unit_name'],
+          'price': unitData['price'],
+          'is_base': false,
+          'image_path': unitData['image_path'],
+        };
+
+        _showQuantityDialog(productData, selectedUnit);
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Produk tidak ditemukan'),
+              content: Text('Barcode tidak ditemukan'),
               backgroundColor: Colors.red,
             ),
           );
@@ -164,7 +200,6 @@ class _CashierScreenState extends State<CashierScreen> {
       {
         'unit_name': product['base_unit'],
         'price': product['base_price'],
-        'conversion_rate': 1.0,
         'is_base': true,
         'image_path': product['image_path'],
       },
@@ -431,7 +466,6 @@ class _CashierScreenState extends State<CashierScreen> {
           'price': unit['price'],
           'qty': qty,
           'unit': unit['unit_name'],
-          'conversion_rate': unit['conversion_rate'] ?? 1.0,
         });
       }
       _calculateTotal();

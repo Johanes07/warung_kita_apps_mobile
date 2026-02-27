@@ -73,7 +73,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
       onConfigure: (db) async {
@@ -95,6 +95,9 @@ class DatabaseHelper {
       final hasUsername = usersInfo.any((col) => col['name'] == 'username');
 
       if (hasEmail && !hasUsername) {
+        // Disable foreign keys temporarily
+        await db.execute('PRAGMA foreign_keys = OFF');
+
         // Buat tabel users baru dengan username
         await db.execute('''
           CREATE TABLE users_new (
@@ -115,7 +118,79 @@ class DatabaseHelper {
         await db.execute('DROP TABLE users');
         await db.execute('ALTER TABLE users_new RENAME TO users');
 
+        // Re-enable foreign keys
+        await db.execute('PRAGMA foreign_keys = ON');
+
         debugPrint("✅ Users table migrated successfully");
+      }
+    }
+
+    // Migration untuk menambahkan barcode, stock, min_stock ke product_units (version 6)
+    if (oldVersion < 6) {
+      debugPrint(
+        "⚠️ Migrating product_units table: adding barcode, stock, min_stock...",
+      );
+
+      try {
+        final unitsInfo = await db.rawQuery('PRAGMA table_info(product_units)');
+        final hasBarcode = unitsInfo.any((col) => col['name'] == 'barcode');
+        final hasStock = unitsInfo.any((col) => col['name'] == 'stock');
+        final hasMinStock = unitsInfo.any((col) => col['name'] == 'min_stock');
+
+        if (!hasBarcode || !hasStock || !hasMinStock) {
+          // Disable foreign keys temporarily
+          await db.execute('PRAGMA foreign_keys = OFF');
+
+          // Buat tabel product_units baru dengan kolom tambahan (tanpa conversion_rate)
+          await db.execute('''
+            CREATE TABLE product_units_new (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              product_id INTEGER NOT NULL,
+              unit_name TEXT NOT NULL,
+              barcode TEXT UNIQUE,
+              price INTEGER NOT NULL,
+              stock REAL NOT NULL DEFAULT 0,
+              min_stock REAL NOT NULL DEFAULT 0,
+              image_path TEXT,
+              FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
+            )
+          ''');
+
+          // Copy data dari tabel lama (skip conversion_rate jika ada)
+          final hasConversionRate = unitsInfo.any(
+            (col) => col['name'] == 'conversion_rate',
+          );
+
+          if (hasConversionRate) {
+            // Tabel lama punya conversion_rate, skip saja
+            await db.execute('''
+              INSERT INTO product_units_new (id, product_id, unit_name, price, image_path, stock, min_stock)
+              SELECT id, product_id, unit_name, price, 
+                     COALESCE(image_path, NULL), 0, 0 
+              FROM product_units
+            ''');
+          } else {
+            // Tabel lama tidak punya conversion_rate
+            await db.execute('''
+              INSERT INTO product_units_new (id, product_id, unit_name, price, image_path, stock, min_stock)
+              SELECT id, product_id, unit_name, price, 
+                     COALESCE(image_path, NULL), 0, 0 
+              FROM product_units
+            ''');
+          }
+
+          await db.execute('DROP TABLE product_units');
+          await db.execute(
+            'ALTER TABLE product_units_new RENAME TO product_units',
+          );
+
+          // Re-enable foreign keys
+          await db.execute('PRAGMA foreign_keys = ON');
+
+          debugPrint("✅ product_units table migrated successfully");
+        }
+      } catch (e) {
+        debugPrint("⚠️ product_units table doesn't exist yet, will be created");
       }
     }
 
@@ -137,14 +212,20 @@ class DatabaseHelper {
         "⚠️ Upgrading from version 3 to 4 (adding multi-unit support)...",
       );
 
-      // Buat tabel product_units
+      // Disable foreign keys temporarily
+      await db.execute('PRAGMA foreign_keys = OFF');
+
+      // Buat tabel product_units (tanpa conversion_rate)
       await db.execute('''
         CREATE TABLE IF NOT EXISTS product_units (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           product_id INTEGER NOT NULL,
           unit_name TEXT NOT NULL,
-          conversion_rate REAL NOT NULL,
+          barcode TEXT UNIQUE,
           price INTEGER NOT NULL,
+          stock REAL NOT NULL DEFAULT 0,
+          min_stock REAL NOT NULL DEFAULT 0,
+          image_path TEXT,
           FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
         )
       ''');
@@ -206,12 +287,19 @@ class DatabaseHelper {
         );
       }
 
+      // Re-enable foreign keys
+      await db.execute('PRAGMA foreign_keys = ON');
+
       debugPrint("✅ Database upgraded to version 4 successfully");
       return;
     }
 
     // Jika struktur sangat berbeda, recreate database
     debugPrint("⚠️ Major schema change detected, recreating database...");
+
+    // Disable foreign keys before dropping tables
+    await db.execute('PRAGMA foreign_keys = OFF');
+
     await db.execute('DROP TABLE IF EXISTS product_units');
     await db.execute('DROP TABLE IF EXISTS transaction_items');
     await db.execute('DROP TABLE IF EXISTS transactions');
@@ -219,6 +307,10 @@ class DatabaseHelper {
     await db.execute('DROP TABLE IF EXISTS users');
 
     await _createDB(db, newVersion);
+
+    // Re-enable foreign keys
+    await db.execute('PRAGMA foreign_keys = ON');
+
     debugPrint("✅ Database recreated with new structure");
   }
 
@@ -254,8 +346,10 @@ class DatabaseHelper {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         product_id INTEGER NOT NULL,
         unit_name TEXT NOT NULL,
-        conversion_rate REAL NOT NULL,
+        barcode TEXT UNIQUE,
         price INTEGER NOT NULL,
+        stock REAL NOT NULL DEFAULT 0,
+        min_stock REAL NOT NULL DEFAULT 0,
         image_path TEXT,
         FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
       )
@@ -318,23 +412,27 @@ class DatabaseHelper {
       'product_units',
       where: 'product_id = ?',
       whereArgs: [productId],
-      orderBy: 'conversion_rate ASC',
+      orderBy: 'unit_name ASC',
     );
   }
 
   Future<int> addProductUnit(
     int productId,
     String unitName,
-    double conversionRate,
     int price, {
+    String? barcode,
+    double? stock,
+    double? minStock,
     String? imagePath,
   }) async {
     final db = await database;
     return await db.insert('product_units', {
       'product_id': productId,
       'unit_name': unitName,
-      'conversion_rate': conversionRate,
+      'barcode': barcode,
       'price': price,
+      'stock': stock ?? 0.0,
+      'min_stock': minStock ?? 0.0,
       'image_path': imagePath,
     });
   }

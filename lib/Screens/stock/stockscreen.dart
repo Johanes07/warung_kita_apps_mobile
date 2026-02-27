@@ -38,7 +38,7 @@ class _StockScreenState extends State<StockScreen> {
     });
   }
 
-  void _applyFilters() {
+  Future<void> _applyFilters() async {
     var filtered = products;
 
     // Filter berdasarkan pencarian
@@ -51,17 +51,49 @@ class _StockScreenState extends State<StockScreen> {
       }).toList();
     }
 
-    // Filter stok menipis
+    // Filter stok menipis - cek satuan dasar DAN satuan alternatif
     if (showLowStockOnly) {
-      filtered = filtered.where((product) {
+      List<Map<String, dynamic>> lowStockProducts = [];
+
+      for (var product in filtered) {
+        bool isLowStock = false;
+
+        // Cek stok satuan dasar
         final stock = (product['stock'] ?? 0.0) is int
             ? (product['stock'] as int).toDouble()
             : product['stock'] as double;
         final minStock = (product['min_stock'] ?? 0.0) is int
             ? (product['min_stock'] as int).toDouble()
             : product['min_stock'] as double;
-        return stock <= minStock && minStock > 0;
-      }).toList();
+
+        if (stock <= minStock && minStock > 0) {
+          isLowStock = true;
+        }
+
+        // Cek stok satuan alternatif
+        if (!isLowStock) {
+          final units = await dbHelper.getProductUnits(product['id']);
+          for (var unit in units) {
+            final unitStock = (unit['stock'] ?? 0.0) is int
+                ? (unit['stock'] as int).toDouble()
+                : unit['stock'] as double;
+            final unitMinStock = (unit['min_stock'] ?? 0.0) is int
+                ? (unit['min_stock'] as int).toDouble()
+                : unit['min_stock'] as double;
+
+            if (unitStock <= unitMinStock && unitMinStock > 0) {
+              isLowStock = true;
+              break;
+            }
+          }
+        }
+
+        if (isLowStock) {
+          lowStockProducts.add(product);
+        }
+      }
+
+      filtered = lowStockProducts;
     }
 
     setState(() {
@@ -196,45 +228,89 @@ class _StockScreenState extends State<StockScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Card(
-                    color: Colors.blue.shade50,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Builder(
+                    builder: (context) {
+                      final baseStock = (product['stock'] ?? 0.0) is int
+                          ? (product['stock'] as int).toDouble()
+                          : product['stock'] as double;
+                      final baseMinStock = (product['min_stock'] ?? 0.0) is int
+                          ? (product['min_stock'] as int).toDouble()
+                          : product['min_stock'] as double;
+                      final isBaseLowStock =
+                          baseStock <= baseMinStock && baseMinStock > 0;
+
+                      return Card(
+                        color: isBaseLowStock
+                            ? Colors.orange.shade50
+                            : Colors.blue.shade50,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    product['base_unit'],
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  Text(
+                                    NumberFormat.currency(
+                                      locale: 'id',
+                                      symbol: 'Rp ',
+                                      decimalDigits: 0,
+                                    ).format(product['base_price']),
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.blue.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
                               Text(
-                                product['base_unit'],
+                                'Stok: ${_formatStock(baseStock)} • Min: ${_formatStock(baseMinStock)}',
                                 style: GoogleFonts.poppins(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                  color: isBaseLowStock
+                                      ? Colors.orange.shade700
+                                      : Colors.grey.shade700,
+                                  fontWeight: isBaseLowStock
+                                      ? FontWeight.w600
+                                      : FontWeight.w500,
                                 ),
                               ),
-                              Text(
-                                NumberFormat.currency(
-                                  locale: 'id',
-                                  symbol: 'Rp ',
-                                  decimalDigits: 0,
-                                ).format(product['base_price']),
-                                style: GoogleFonts.poppins(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.blue.shade700,
+                              if (isBaseLowStock)
+                                Container(
+                                  margin: const EdgeInsets.only(top: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange.shade100,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    'Stok Menipis',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 11,
+                                      color: Colors.orange.shade700,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                 ),
-                              ),
                             ],
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Stok: ${_formatStock(product['stock'])} ${product['base_unit']}',
-                            style: GoogleFonts.poppins(fontSize: 14),
-                          ),
-                        ],
-                      ),
-                    ),
+                        ),
+                      );
+                    },
                   ),
 
                   if (units.isNotEmpty) ...[
@@ -249,8 +325,21 @@ class _StockScreenState extends State<StockScreen> {
                     const SizedBox(height: 12),
                     ...units.map((unit) {
                       final unitImagePath = unit['image_path'];
+                      final unitBarcode = unit['barcode'];
+                      final unitStock = (unit['stock'] ?? 0.0) is int
+                          ? (unit['stock'] as int).toDouble()
+                          : unit['stock'] as double;
+                      final unitMinStock = (unit['min_stock'] ?? 0.0) is int
+                          ? (unit['min_stock'] as int).toDouble()
+                          : unit['min_stock'] as double;
+                      final isLowStock =
+                          unitStock <= unitMinStock && unitMinStock > 0;
+
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
+                        color: isLowStock
+                            ? Colors.orange.shade50
+                            : Colors.white,
                         child: Padding(
                           padding: const EdgeInsets.all(16),
                           child: Row(
@@ -283,24 +372,74 @@ class _StockScreenState extends State<StockScreen> {
                                   ),
                                 ),
                               Expanded(
-                                child: Text(
-                                  unit['unit_name'],
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                              Text(
-                                NumberFormat.currency(
-                                  locale: 'id',
-                                  symbol: 'Rp ',
-                                  decimalDigits: 0,
-                                ).format(unit['price']),
-                                style: GoogleFonts.poppins(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.green.shade700,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      unit['unit_name'],
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    if (unitBarcode != null &&
+                                        unitBarcode.toString().isNotEmpty)
+                                      Text(
+                                        'Barcode: $unitBarcode',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      NumberFormat.currency(
+                                        locale: 'id',
+                                        symbol: 'Rp ',
+                                        decimalDigits: 0,
+                                      ).format(unit['price']),
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.green.shade700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Stok: ${_formatStock(unitStock)} • Min: ${_formatStock(unitMinStock)}',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 13,
+                                        color: isLowStock
+                                            ? Colors.orange.shade700
+                                            : Colors.grey.shade600,
+                                        fontWeight: isLowStock
+                                            ? FontWeight.w600
+                                            : FontWeight.normal,
+                                      ),
+                                    ),
+                                    if (isLowStock)
+                                      Container(
+                                        margin: const EdgeInsets.only(top: 4),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.orange.shade100,
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          'Stok Menipis',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 11,
+                                            color: Colors.orange.shade700,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
                             ],
@@ -373,6 +512,38 @@ class _StockScreenState extends State<StockScreen> {
       return stockValue.toInt().toString();
     }
     return stockValue.toString().replaceAll('.', ',');
+  }
+
+  // Fungsi untuk cek apakah produk atau satuan alternatifnya ada yang menipis
+  Future<bool> _hasLowStock(Map<String, dynamic> product) async {
+    // Cek stok satuan dasar
+    final stock = (product['stock'] ?? 0.0) is int
+        ? (product['stock'] as int).toDouble()
+        : product['stock'] as double;
+    final minStock = (product['min_stock'] ?? 0.0) is int
+        ? (product['min_stock'] as int).toDouble()
+        : product['min_stock'] as double;
+
+    if (stock <= minStock && minStock > 0) {
+      return true;
+    }
+
+    // Cek stok satuan alternatif
+    final units = await dbHelper.getProductUnits(product['id']);
+    for (var unit in units) {
+      final unitStock = (unit['stock'] ?? 0.0) is int
+          ? (unit['stock'] as int).toDouble()
+          : unit['stock'] as double;
+      final unitMinStock = (unit['min_stock'] ?? 0.0) is int
+          ? (unit['min_stock'] as int).toDouble()
+          : unit['min_stock'] as double;
+
+      if (unitStock <= unitMinStock && unitMinStock > 0) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   @override
@@ -507,122 +678,138 @@ class _StockScreenState extends State<StockScreen> {
                         final minStock = (product['min_stock'] ?? 0.0) is int
                             ? (product['min_stock'] as int).toDouble()
                             : product['min_stock'] as double;
-                        final isLowStock = stock <= minStock && minStock > 0;
+                        final isBaseUnitLowStock =
+                            stock <= minStock && minStock > 0;
 
-                        return Card(
-                          elevation: 2,
-                          margin: const EdgeInsets.only(bottom: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: InkWell(
-                            onTap: () => _showProductDetails(product),
-                            borderRadius: BorderRadius.circular(12),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 50,
-                                    height: 50,
-                                    decoration: BoxDecoration(
-                                      color: isLowStock
-                                          ? Colors.orange.shade100
-                                          : Colors.blue.shade100,
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child:
-                                        product['image_path'] != null &&
-                                            product['image_path']
-                                                .toString()
-                                                .isNotEmpty
-                                        ? ClipRRect(
-                                            borderRadius: BorderRadius.circular(
-                                              10,
-                                            ),
-                                            child: Image.file(
-                                              File(
+                        return FutureBuilder<bool>(
+                          future: _hasLowStock(product),
+                          builder: (context, snapshot) {
+                            final hasAnyLowStock =
+                                snapshot.data ?? isBaseUnitLowStock;
+
+                            return Card(
+                              elevation: 2,
+                              margin: const EdgeInsets.only(bottom: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: InkWell(
+                                onTap: () => _showProductDetails(product),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 50,
+                                        height: 50,
+                                        decoration: BoxDecoration(
+                                          color: hasAnyLowStock
+                                              ? Colors.orange.shade100
+                                              : Colors.blue.shade100,
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                        ),
+                                        child:
+                                            product['image_path'] != null &&
                                                 product['image_path']
-                                                    .toString(),
+                                                    .toString()
+                                                    .isNotEmpty
+                                            ? ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                                child: Image.file(
+                                                  File(
+                                                    product['image_path']
+                                                        .toString(),
+                                                  ),
+                                                  fit: BoxFit.cover,
+                                                  errorBuilder:
+                                                      (
+                                                        context,
+                                                        error,
+                                                        stackTrace,
+                                                      ) {
+                                                        return Icon(
+                                                          Icons.inventory_2,
+                                                          color: hasAnyLowStock
+                                                              ? Colors
+                                                                    .orange
+                                                                    .shade700
+                                                              : Colors
+                                                                    .blue
+                                                                    .shade700,
+                                                        );
+                                                      },
+                                                ),
+                                              )
+                                            : Icon(
+                                                Icons.inventory_2,
+                                                color: hasAnyLowStock
+                                                    ? Colors.orange.shade700
+                                                    : Colors.blue.shade700,
                                               ),
-                                              fit: BoxFit.cover,
-                                              errorBuilder:
-                                                  (context, error, stackTrace) {
-                                                    return Icon(
-                                                      Icons.inventory_2,
-                                                      color: isLowStock
-                                                          ? Colors
-                                                                .orange
-                                                                .shade700
-                                                          : Colors
-                                                                .blue
-                                                                .shade700,
-                                                    );
-                                                  },
-                                            ),
-                                          )
-                                        : Icon(
-                                            Icons.inventory_2,
-                                            color: isLowStock
-                                                ? Colors.orange.shade700
-                                                : Colors.blue.shade700,
-                                          ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          product['name'],
-                                          style: GoogleFonts.poppins(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          '${_formatStock(stock)} ${product['base_unit']} • ${NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0).format(product['base_price'])}',
-                                          style: GoogleFonts.poppins(
-                                            fontSize: 13,
-                                            color: Colors.grey.shade600,
-                                          ),
-                                        ),
-                                        if (isLowStock)
-                                          Container(
-                                            margin: const EdgeInsets.only(
-                                              top: 4,
-                                            ),
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 2,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: Colors.orange.shade100,
-                                              borderRadius:
-                                                  BorderRadius.circular(4),
-                                            ),
-                                            child: Text(
-                                              'Stok Menipis',
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              product['name'],
                                               style: GoogleFonts.poppins(
-                                                fontSize: 11,
-                                                color: Colors.orange.shade700,
+                                                fontSize: 15,
                                                 fontWeight: FontWeight.w600,
                                               ),
                                             ),
-                                          ),
-                                      ],
-                                    ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              '${_formatStock(stock)} ${product['base_unit']} • ${NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0).format(product['base_price'])}',
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 13,
+                                                color: Colors.grey.shade600,
+                                              ),
+                                            ),
+                                            if (hasAnyLowStock)
+                                              Container(
+                                                margin: const EdgeInsets.only(
+                                                  top: 4,
+                                                ),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 2,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.orange.shade100,
+                                                  borderRadius:
+                                                      BorderRadius.circular(4),
+                                                ),
+                                                child: Text(
+                                                  'Stok Menipis',
+                                                  style: GoogleFonts.poppins(
+                                                    fontSize: 11,
+                                                    color:
+                                                        Colors.orange.shade700,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                      Icon(
+                                        Icons.chevron_right,
+                                        color: Colors.grey.shade400,
+                                      ),
+                                    ],
                                   ),
-                                  Icon(
-                                    Icons.chevron_right,
-                                    color: Colors.grey.shade400,
-                                  ),
-                                ],
+                                ),
                               ),
-                            ),
-                          ),
+                            );
+                          },
                         );
                       },
                     ),

@@ -126,10 +126,41 @@ class _AddProductScreenState extends State<AddProductScreen> {
     super.dispose();
   }
 
-  Future<void> _pickImage() async {
+  Future<void> _pickImage({ImageSource? source}) async {
     try {
+      // Jika source tidak ditentukan, tampilkan dialog pilihan
+      ImageSource? selectedSource = source;
+      if (selectedSource == null) {
+        selectedSource = await showDialog<ImageSource>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(
+              'Pilih Sumber Gambar',
+              style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.camera_alt, color: Colors.blue),
+                  title: const Text('Kamera'),
+                  onTap: () => Navigator.pop(context, ImageSource.camera),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.photo_library, color: Colors.green),
+                  title: const Text('Galeri'),
+                  onTap: () => Navigator.pop(context, ImageSource.gallery),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
+      if (selectedSource == null) return;
+
       final XFile? image = await _picker.pickImage(
-        source: ImageSource.gallery,
+        source: selectedSource,
         maxWidth: 800,
         maxHeight: 800,
         imageQuality: 85,
@@ -178,17 +209,26 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
   void _editAlternativeUnit(int index) {
     final unit = alternativeUnits[index];
-    // Format konversi: hilangkan .0 jika bilangan bulat
-    final conversionRate = unit['conversion_rate'] as double;
-    final conversionText = conversionRate % 1 == 0
-        ? conversionRate.toInt().toString()
-        : conversionRate.toString().replaceAll('.', ',');
+
+    // Format stok
+    final stock = unit['stock'] ?? 0.0;
+    final stockText = stock % 1 == 0
+        ? stock.toInt().toString()
+        : stock.toString().replaceAll('.', ',');
+
+    // Format min stok
+    final minStock = unit['min_stock'] ?? 0.0;
+    final minStockText = minStock % 1 == 0
+        ? minStock.toInt().toString()
+        : minStock.toString().replaceAll('.', ',');
 
     _showAlternativeUnitDialog(
       index: index,
       initialUnitName: unit['unit_name'],
-      initialConversion: conversionText,
+      initialBarcode: unit['barcode'],
       initialPrice: NumberFormat('#,###', 'id_ID').format(unit['price']),
+      initialStock: stockText,
+      initialMinStock: minStockText,
       initialImagePath: unit['image_path'],
     );
   }
@@ -196,8 +236,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
   void _showAlternativeUnitDialog({
     int? index,
     String? initialUnitName,
-    String? initialConversion,
+    String? initialBarcode,
     String? initialPrice,
+    String? initialStock,
+    String? initialMinStock,
     String? initialImagePath,
   }) {
     final isEdit = index != null;
@@ -206,14 +248,101 @@ class _AddProductScreenState extends State<AddProductScreen> {
       context: context,
       builder: (context) {
         final unitNameController = TextEditingController(text: initialUnitName);
-        final conversionController = TextEditingController(
-          text: initialConversion,
-        );
+        final barcodeController = TextEditingController(text: initialBarcode);
         final priceController = TextEditingController(text: initialPrice);
+        final stockController = TextEditingController(text: initialStock);
+        final minStockController = TextEditingController(text: initialMinStock);
         String? unitImagePath = initialImagePath;
 
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            Future<void> pickUnitImage({ImageSource? source}) async {
+              try {
+                // Jika source tidak ditentukan, tampilkan dialog pilihan
+                ImageSource? selectedSource = source;
+                if (selectedSource == null) {
+                  selectedSource = await showDialog<ImageSource>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: Text(
+                        'Pilih Sumber Gambar',
+                        style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+                      ),
+                      content: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ListTile(
+                            leading: const Icon(
+                              Icons.camera_alt,
+                              color: Colors.blue,
+                            ),
+                            title: const Text('Kamera'),
+                            onTap: () =>
+                                Navigator.pop(context, ImageSource.camera),
+                          ),
+                          ListTile(
+                            leading: const Icon(
+                              Icons.photo_library,
+                              color: Colors.green,
+                            ),
+                            title: const Text('Galeri'),
+                            onTap: () =>
+                                Navigator.pop(context, ImageSource.gallery),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                if (selectedSource == null) return;
+
+                final XFile? image = await _picker.pickImage(
+                  source: selectedSource,
+                  maxWidth: 800,
+                  maxHeight: 800,
+                  imageQuality: 85,
+                );
+
+                if (image != null) {
+                  final appDir = await getApplicationDocumentsDirectory();
+                  final fileName =
+                      '${DateTime.now().millisecondsSinceEpoch}${path.extension(image.path)}';
+                  final savedImage = await File(
+                    image.path,
+                  ).copy('${appDir.path}/$fileName');
+
+                  setDialogState(() {
+                    unitImagePath = savedImage.path;
+                  });
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Gagal memilih gambar: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            }
+
+            Future<void> scanUnitBarcode() async {
+              final result = await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const BarcodeScannerScreen(),
+                ),
+              );
+
+              if (result != null && result is String) {
+                setDialogState(() {
+                  barcodeController.text = result;
+                });
+              }
+            }
+
             return AlertDialog(
               title: Text(
                 isEdit ? 'Edit Satuan Alternatif' : 'Tambah Satuan Alternatif',
@@ -223,43 +352,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // Gambar satuan
                     Column(
                       children: [
-                        // Placeholder atau preview gambar satuan
                         GestureDetector(
-                          onTap: () async {
-                            try {
-                              final XFile? image = await _picker.pickImage(
-                                source: ImageSource.gallery,
-                                maxWidth: 800,
-                                maxHeight: 800,
-                                imageQuality: 85,
-                              );
-
-                              if (image != null) {
-                                final appDir =
-                                    await getApplicationDocumentsDirectory();
-                                final fileName =
-                                    '${DateTime.now().millisecondsSinceEpoch}${path.extension(image.path)}';
-                                final savedImage = await File(
-                                  image.path,
-                                ).copy('${appDir.path}/$fileName');
-
-                                setDialogState(() {
-                                  unitImagePath = savedImage.path;
-                                });
-                              }
-                            } catch (e) {
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Gagal memilih gambar: $e'),
-                                    backgroundColor: Colors.red,
-                                  ),
-                                );
-                              }
-                            }
-                          },
+                          onTap: () => pickUnitImage(),
                           child: Container(
                             width: 100,
                             height: 100,
@@ -318,34 +415,46 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       ],
                     ),
                     const SizedBox(height: 16),
+
+                    // Nama Satuan
                     TextField(
                       controller: unitNameController,
                       decoration: InputDecoration(
-                        labelText: 'Nama Satuan (contoh: Box, Karton)',
+                        labelText: 'Nama Satuan (contoh: Box, Karton, Lusin)',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
                     ),
                     const SizedBox(height: 12),
-                    TextField(
-                      controller: conversionController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[0-9,]')),
+
+                    // Barcode Satuan
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: barcodeController,
+                            decoration: InputDecoration(
+                              labelText: 'Barcode (opsional)',
+                              hintText: 'Scan atau ketik barcode',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          onPressed: scanUnitBarcode,
+                          icon: const Icon(Icons.qr_code_scanner),
+                          color: Colors.blue,
+                          tooltip: 'Scan Barcode',
+                        ),
                       ],
-                      decoration: InputDecoration(
-                        labelText:
-                            'Konversi (contoh: 1 Box = 24 ${baseUnitController.text})',
-                        hintText: 'Contoh: 24 atau 24,5',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
                     ),
                     const SizedBox(height: 12),
+
+                    // Harga
                     TextField(
                       controller: priceController,
                       keyboardType: TextInputType.number,
@@ -353,6 +462,44 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       decoration: InputDecoration(
                         labelText: 'Harga per Satuan',
                         prefixText: 'Rp ',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Stok Awal
+                    TextField(
+                      controller: stockController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9,]')),
+                      ],
+                      decoration: InputDecoration(
+                        labelText: 'Stok Awal (opsional)',
+                        hintText: 'Contoh: 10 atau 10,5',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Stok Minimum
+                    TextField(
+                      controller: minStockController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9,]')),
+                      ],
+                      decoration: InputDecoration(
+                        labelText: 'Stok Minimum (untuk notifikasi)',
+                        hintText: 'Contoh: 5 atau 5,5',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
@@ -369,17 +516,26 @@ class _AddProductScreenState extends State<AddProductScreen> {
                 ElevatedButton(
                   onPressed: () {
                     if (unitNameController.text.isNotEmpty &&
-                        conversionController.text.isNotEmpty &&
                         priceController.text.isNotEmpty) {
                       setState(() {
                         final unitData = {
                           'unit_name': unitNameController.text.trim(),
-                          'conversion_rate': double.parse(
-                            conversionController.text.replaceAll(',', '.'),
-                          ),
+                          'barcode': barcodeController.text.trim().isEmpty
+                              ? null
+                              : barcodeController.text.trim(),
                           'price': int.parse(
                             priceController.text.replaceAll('.', ''),
                           ),
+                          'stock': stockController.text.isEmpty
+                              ? 0.0
+                              : double.parse(
+                                  stockController.text.replaceAll(',', '.'),
+                                ),
+                          'min_stock': minStockController.text.isEmpty
+                              ? 0.0
+                              : double.parse(
+                                  minStockController.text.replaceAll(',', '.'),
+                                ),
                           'image_path': unitImagePath,
                         };
 
@@ -409,6 +565,58 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
     try {
       final db = await dbHelper.database;
+
+      // Cek apakah barcode sudah digunakan (kecuali saat edit produk yang sama)
+      final existingProducts = await db.query(
+        'products',
+        where: 'barcode = ?',
+        whereArgs: [barcodeController.text.trim()],
+      );
+
+      if (existingProducts.isNotEmpty) {
+        if (!isEdit || existingProducts.first['id'] != widget.product!['id']) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Barcode "${barcodeController.text.trim()}" sudah digunakan oleh produk "${existingProducts.first['name']}"',
+                ),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+          setState(() => isSaving = false);
+          return;
+        }
+      }
+
+      // Cek barcode satuan alternatif
+      for (var unit in alternativeUnits) {
+        if (unit['barcode'] != null && unit['barcode'].toString().isNotEmpty) {
+          final existingUnits = await db.query(
+            'product_units',
+            where: 'barcode = ?',
+            whereArgs: [unit['barcode']],
+          );
+
+          if (existingUnits.isNotEmpty) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Barcode satuan "${unit['barcode']}" sudah digunakan',
+                  ),
+                  backgroundColor: Colors.red,
+                  duration: const Duration(seconds: 4),
+                ),
+              );
+            }
+            setState(() => isSaving = false);
+            return;
+          }
+        }
+      }
 
       double stock = stockController.text.isEmpty
           ? 0.0
@@ -450,8 +658,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
         await dbHelper.addProductUnit(
           productId,
           unit['unit_name'],
-          unit['conversion_rate'],
           unit['price'],
+          barcode: unit['barcode'],
+          stock: unit['stock'],
+          minStock: unit['min_stock'],
           imagePath: unit['image_path'],
         );
       }
@@ -471,8 +681,27 @@ class _AddProductScreenState extends State<AddProductScreen> {
       }
     } catch (e) {
       if (mounted) {
+        String errorMessage = 'Error: $e';
+
+        // Parse error message untuk lebih user-friendly
+        if (e.toString().contains(
+          'UNIQUE constraint failed: products.barcode',
+        )) {
+          errorMessage =
+              'Barcode produk sudah digunakan. Gunakan barcode lain.';
+        } else if (e.toString().contains(
+          'UNIQUE constraint failed: product_units.barcode',
+        )) {
+          errorMessage =
+              'Barcode satuan alternatif sudah digunakan. Gunakan barcode lain.';
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
         );
       }
     } finally {
@@ -916,8 +1145,17 @@ class _AddProductScreenState extends State<AddProductScreen> {
                           final index = entry.key;
                           final unit = entry.value;
                           final unitImagePath = unit['image_path'];
+                          final unitBarcode = unit['barcode'];
+                          final unitStock = unit['stock'] ?? 0.0;
+                          final unitMinStock = unit['min_stock'] ?? 0.0;
+                          final isLowStock =
+                              unitStock <= unitMinStock && unitMinStock > 0;
+
                           return Card(
                             margin: const EdgeInsets.only(bottom: 8),
+                            color: isLowStock
+                                ? Colors.orange.shade50
+                                : Colors.white,
                             child: ListTile(
                               leading: Container(
                                 width: 50,
@@ -954,9 +1192,32 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
-                              subtitle: Text(
-                                'Konversi: ${_formatNumber(unit['conversion_rate'])} ${baseUnitController.text}\nHarga: ${NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0).format(unit['price'])}',
-                                style: GoogleFonts.poppins(fontSize: 12),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (unitBarcode != null &&
+                                      unitBarcode.toString().isNotEmpty)
+                                    Text(
+                                      'Barcode: $unitBarcode',
+                                      style: GoogleFonts.poppins(fontSize: 11),
+                                    ),
+                                  Text(
+                                    'Harga: ${NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0).format(unit['price'])}',
+                                    style: GoogleFonts.poppins(fontSize: 11),
+                                  ),
+                                  Text(
+                                    'Stok: ${_formatNumber(unitStock)} • Min: ${_formatNumber(unitMinStock)}',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 11,
+                                      color: isLowStock
+                                          ? Colors.orange.shade700
+                                          : Colors.grey.shade600,
+                                      fontWeight: isLowStock
+                                          ? FontWeight.w600
+                                          : FontWeight.normal,
+                                    ),
+                                  ),
+                                ],
                               ),
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
