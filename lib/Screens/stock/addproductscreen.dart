@@ -711,6 +711,12 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 600;
+    final isMediumScreen = screenWidth >= 600 && screenWidth < 900;
+    final padding = isSmallScreen ? 12.0 : (isMediumScreen ? 16.0 : 24.0);
+    final cardPadding = isSmallScreen ? 12.0 : 16.0;
+
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
@@ -720,6 +726,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
           style: GoogleFonts.poppins(
             fontWeight: FontWeight.w600,
             color: Colors.black,
+            fontSize: isSmallScreen ? 16 : 18,
           ),
         ),
         backgroundColor: Colors.transparent,
@@ -737,7 +744,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
       body: Form(
         key: _formKey,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(padding),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -748,57 +755,103 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: EdgeInsets.all(cardPadding),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         'Barcode',
                         style: GoogleFonts.poppins(
-                          fontSize: 14,
+                          fontSize: isSmallScreen ? 13 : 14,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: barcodeController,
-                              decoration: InputDecoration(
-                                hintText: 'Scan atau ketik barcode',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
+                      SizedBox(height: isSmallScreen ? 6 : 8),
+                      isSmallScreen
+                          ? Column(
+                              children: [
+                                TextFormField(
+                                  controller: barcodeController,
+                                  decoration: InputDecoration(
+                                    hintText: 'Scan atau ketik barcode',
+                                    hintStyle: TextStyle(fontSize: 13),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 12,
+                                    ),
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Barcode tidak boleh kosong';
+                                    }
+                                    return null;
+                                  },
                                 ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 12,
+                                const SizedBox(height: 8),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed: _scanBarcode,
+                                    icon: const Icon(
+                                      Icons.qr_code_scanner,
+                                      size: 18,
+                                    ),
+                                    label: const Text('Scan Barcode'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.blue,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 12,
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Barcode tidak boleh kosong';
-                                }
-                                return null;
-                              },
+                              ],
+                            )
+                          : Row(
+                              children: [
+                                Expanded(
+                                  child: TextFormField(
+                                    controller: barcodeController,
+                                    decoration: InputDecoration(
+                                      hintText: 'Scan atau ketik barcode',
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 12,
+                                          ),
+                                    ),
+                                    validator: (value) {
+                                      if (value == null || value.isEmpty) {
+                                        return 'Barcode tidak boleh kosong';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                ElevatedButton.icon(
+                                  onPressed: _scanBarcode,
+                                  icon: const Icon(Icons.qr_code_scanner),
+                                  label: const Text('Scan'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.blue,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton.icon(
-                            onPressed: _scanBarcode,
-                            icon: const Icon(Icons.qr_code_scanner),
-                            label: const Text('Scan'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
                     ],
                   ),
                 ),
@@ -812,24 +865,32 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: EdgeInsets.all(cardPadding),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         'Nama Produk',
                         style: GoogleFonts.poppins(
-                          fontSize: 14,
+                          fontSize: isSmallScreen ? 13 : 14,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      SizedBox(height: isSmallScreen ? 6 : 8),
                       TextFormField(
                         controller: nameController,
+                        style: TextStyle(fontSize: isSmallScreen ? 13 : 14),
                         decoration: InputDecoration(
                           hintText: 'Masukkan nama produk',
+                          hintStyle: TextStyle(
+                            fontSize: isSmallScreen ? 13 : 14,
+                          ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
+                          ),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: isSmallScreen ? 10 : 12,
                           ),
                         ),
                         validator: (value) {
@@ -852,29 +913,29 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: EdgeInsets.all(cardPadding),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         'Gambar Produk (Opsional)',
                         style: GoogleFonts.poppins(
-                          fontSize: 14,
+                          fontSize: isSmallScreen ? 13 : 14,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: isSmallScreen ? 8 : 12),
                       Center(
                         child: Column(
                           children: [
-                            // FIX: Selalu tampilkan area gambar —
-                            // placeholder jika belum ada, preview jika sudah ada
                             GestureDetector(
                               onTap: _pickImage,
                               child: Container(
-                                width: 150,
-                                height: 150,
-                                margin: const EdgeInsets.only(bottom: 12),
+                                width: isSmallScreen ? 120 : 150,
+                                height: isSmallScreen ? 120 : 150,
+                                margin: EdgeInsets.only(
+                                  bottom: isSmallScreen ? 8 : 12,
+                                ),
                                 decoration: BoxDecoration(
                                   color: Colors.grey.shade200,
                                   borderRadius: BorderRadius.circular(12),
@@ -896,15 +957,17 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                         children: [
                                           Icon(
                                             Icons.add_photo_alternate,
-                                            size: 48,
+                                            size: isSmallScreen ? 36 : 48,
                                             color: Colors.grey.shade400,
                                           ),
-                                          const SizedBox(height: 8),
+                                          SizedBox(
+                                            height: isSmallScreen ? 4 : 8,
+                                          ),
                                           Text(
                                             'Tap untuk\npilih gambar',
                                             textAlign: TextAlign.center,
                                             style: GoogleFonts.poppins(
-                                              fontSize: 12,
+                                              fontSize: isSmallScreen ? 10 : 12,
                                               color: Colors.grey.shade500,
                                             ),
                                           ),
@@ -912,30 +975,34 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       ),
                               ),
                             ),
-                            // Tombol selalu tampil
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton.icon(
                                 onPressed: _pickImage,
-                                icon: const Icon(Icons.add_photo_alternate),
+                                icon: Icon(
+                                  Icons.add_photo_alternate,
+                                  size: isSmallScreen ? 16 : 18,
+                                ),
                                 label: Text(
                                   imagePath != null
                                       ? 'Ganti Gambar'
                                       : 'Pilih Gambar',
+                                  style: TextStyle(
+                                    fontSize: isSmallScreen ? 13 : 14,
+                                  ),
                                 ),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.blue,
                                   foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 24,
-                                    vertical: 14,
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: isSmallScreen ? 16 : 24,
+                                    vertical: isSmallScreen ? 10 : 14,
                                   ),
                                 ),
                               ),
                             ),
-                            // Tombol hapus gambar — hanya muncul kalau ada gambar
                             if (imagePath != null) ...[
-                              const SizedBox(height: 8),
+                              SizedBox(height: isSmallScreen ? 6 : 8),
                               SizedBox(
                                 width: double.infinity,
                                 child: OutlinedButton.icon(
@@ -944,19 +1011,23 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       imagePath = null;
                                     });
                                   },
-                                  icon: const Icon(
+                                  icon: Icon(
                                     Icons.delete_outline,
                                     color: Colors.red,
+                                    size: isSmallScreen ? 16 : 18,
                                   ),
-                                  label: const Text(
+                                  label: Text(
                                     'Hapus Gambar',
-                                    style: TextStyle(color: Colors.red),
+                                    style: TextStyle(
+                                      color: Colors.red,
+                                      fontSize: isSmallScreen ? 13 : 14,
+                                    ),
                                   ),
                                   style: OutlinedButton.styleFrom(
                                     side: const BorderSide(color: Colors.red),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 24,
-                                      vertical: 14,
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: isSmallScreen ? 16 : 24,
+                                      vertical: isSmallScreen ? 10 : 14,
                                     ),
                                   ),
                                 ),
@@ -978,24 +1049,32 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: EdgeInsets.all(cardPadding),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         'Satuan Dasar',
                         style: GoogleFonts.poppins(
-                          fontSize: 16,
+                          fontSize: isSmallScreen ? 14 : 16,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: isSmallScreen ? 8 : 12),
                       TextFormField(
                         controller: baseUnitController,
+                        style: TextStyle(fontSize: isSmallScreen ? 13 : 14),
                         decoration: InputDecoration(
                           labelText: 'Satuan (contoh: pcs, kg, liter)',
+                          labelStyle: TextStyle(
+                            fontSize: isSmallScreen ? 12 : 14,
+                          ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
+                          ),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: isSmallScreen ? 10 : 12,
                           ),
                         ),
                         validator: (value) {
@@ -1005,16 +1084,24 @@ class _AddProductScreenState extends State<AddProductScreen> {
                           return null;
                         },
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: isSmallScreen ? 8 : 12),
                       TextFormField(
                         controller: basePriceController,
                         keyboardType: TextInputType.number,
                         inputFormatters: [CurrencyInputFormatter()],
+                        style: TextStyle(fontSize: isSmallScreen ? 13 : 14),
                         decoration: InputDecoration(
                           labelText: 'Harga per Satuan Dasar',
+                          labelStyle: TextStyle(
+                            fontSize: isSmallScreen ? 12 : 14,
+                          ),
                           prefixText: 'Rp ',
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
+                          ),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: isSmallScreen ? 10 : 12,
                           ),
                         ),
                         validator: (value) {
@@ -1037,18 +1124,18 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: EdgeInsets.all(cardPadding),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         'Stok Satuan Dasar',
                         style: GoogleFonts.poppins(
-                          fontSize: 16,
+                          fontSize: isSmallScreen ? 14 : 16,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: isSmallScreen ? 8 : 12),
                       TextFormField(
                         controller: stockController,
                         keyboardType: const TextInputType.numberWithOptions(
@@ -1057,16 +1144,27 @@ class _AddProductScreenState extends State<AddProductScreen> {
                         inputFormatters: [
                           FilteringTextInputFormatter.allow(RegExp(r'[0-9,]')),
                         ],
+                        style: TextStyle(fontSize: isSmallScreen ? 13 : 14),
                         decoration: InputDecoration(
                           labelText:
                               'Stok Awal (opsional, gunakan koma untuk desimal)',
+                          labelStyle: TextStyle(
+                            fontSize: isSmallScreen ? 12 : 14,
+                          ),
                           hintText: 'Contoh: 100 atau 100,5',
+                          hintStyle: TextStyle(
+                            fontSize: isSmallScreen ? 12 : 14,
+                          ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: isSmallScreen ? 10 : 12,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: isSmallScreen ? 8 : 12),
                       TextFormField(
                         controller: minStockController,
                         keyboardType: const TextInputType.numberWithOptions(
@@ -1075,12 +1173,23 @@ class _AddProductScreenState extends State<AddProductScreen> {
                         inputFormatters: [
                           FilteringTextInputFormatter.allow(RegExp(r'[0-9,]')),
                         ],
+                        style: TextStyle(fontSize: isSmallScreen ? 13 : 14),
                         decoration: InputDecoration(
                           labelText:
                               'Stok Minimum (untuk notifikasi stok menipis)',
+                          labelStyle: TextStyle(
+                            fontSize: isSmallScreen ? 12 : 14,
+                          ),
                           hintText: 'Contoh: 10 atau 10,5',
+                          hintStyle: TextStyle(
+                            fontSize: isSmallScreen ? 12 : 14,
+                          ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
+                          ),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: isSmallScreen ? 10 : 12,
                           ),
                         ),
                       ),
@@ -1097,45 +1206,75 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: EdgeInsets.all(cardPadding),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Satuan Alternatif (Opsional)',
-                            style: GoogleFonts.poppins(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                      isSmallScreen
+                          ? Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Satuan Alternatif (Opsional)',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed: _addAlternativeUnit,
+                                    icon: const Icon(Icons.add, size: 16),
+                                    label: const Text('Tambah Satuan'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 10,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Satuan Alternatif (Opsional)',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                ElevatedButton.icon(
+                                  onPressed: _addAlternativeUnit,
+                                  icon: const Icon(Icons.add, size: 18),
+                                  label: const Text('Tambah'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                          ElevatedButton.icon(
-                            onPressed: _addAlternativeUnit,
-                            icon: const Icon(Icons.add, size: 18),
-                            label: const Text('Tambah'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: isSmallScreen ? 8 : 12),
                       if (alternativeUnits.isEmpty)
                         Center(
                           child: Padding(
-                            padding: const EdgeInsets.all(16),
+                            padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
                             child: Text(
                               'Belum ada satuan alternatif',
                               style: GoogleFonts.poppins(
                                 color: Colors.grey,
-                                fontSize: 13,
+                                fontSize: isSmallScreen ? 12 : 13,
                               ),
                             ),
                           ),
@@ -1152,14 +1291,20 @@ class _AddProductScreenState extends State<AddProductScreen> {
                               unitStock <= unitMinStock && unitMinStock > 0;
 
                           return Card(
-                            margin: const EdgeInsets.only(bottom: 8),
+                            margin: EdgeInsets.only(
+                              bottom: isSmallScreen ? 6 : 8,
+                            ),
                             color: isLowStock
                                 ? Colors.orange.shade50
                                 : Colors.white,
                             child: ListTile(
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: isSmallScreen ? 8 : 12,
+                                vertical: isSmallScreen ? 4 : 8,
+                              ),
                               leading: Container(
-                                width: 50,
-                                height: 50,
+                                width: isSmallScreen ? 40 : 50,
+                                height: isSmallScreen ? 40 : 50,
                                 decoration: BoxDecoration(
                                   color: Colors.grey.shade100,
                                   borderRadius: BorderRadius.circular(8),
@@ -1177,6 +1322,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                                 return Icon(
                                                   Icons.inventory_2,
                                                   color: Colors.grey.shade400,
+                                                  size: isSmallScreen ? 20 : 24,
                                                 );
                                               },
                                         ),
@@ -1184,12 +1330,14 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                     : Icon(
                                         Icons.inventory_2,
                                         color: Colors.grey.shade400,
+                                        size: isSmallScreen ? 20 : 24,
                                       ),
                               ),
                               title: Text(
                                 unit['unit_name'],
                                 style: GoogleFonts.poppins(
                                   fontWeight: FontWeight.w600,
+                                  fontSize: isSmallScreen ? 13 : 14,
                                 ),
                               ),
                               subtitle: Column(
@@ -1199,16 +1347,20 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                       unitBarcode.toString().isNotEmpty)
                                     Text(
                                       'Barcode: $unitBarcode',
-                                      style: GoogleFonts.poppins(fontSize: 11),
+                                      style: GoogleFonts.poppins(
+                                        fontSize: isSmallScreen ? 10 : 11,
+                                      ),
                                     ),
                                   Text(
                                     'Harga: ${NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0).format(unit['price'])}',
-                                    style: GoogleFonts.poppins(fontSize: 11),
+                                    style: GoogleFonts.poppins(
+                                      fontSize: isSmallScreen ? 10 : 11,
+                                    ),
                                   ),
                                   Text(
                                     'Stok: ${_formatNumber(unitStock)} • Min: ${_formatNumber(unitMinStock)}',
                                     style: GoogleFonts.poppins(
-                                      fontSize: 11,
+                                      fontSize: isSmallScreen ? 10 : 11,
                                       color: isLowStock
                                           ? Colors.orange.shade700
                                           : Colors.grey.shade600,
@@ -1223,18 +1375,34 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   IconButton(
-                                    icon: const Icon(
+                                    icon: Icon(
                                       Icons.edit,
                                       color: Colors.blue,
+                                      size: isSmallScreen ? 18 : 20,
+                                    ),
+                                    padding: EdgeInsets.all(
+                                      isSmallScreen ? 4 : 8,
+                                    ),
+                                    constraints: BoxConstraints(
+                                      minWidth: isSmallScreen ? 32 : 40,
+                                      minHeight: isSmallScreen ? 32 : 40,
                                     ),
                                     onPressed: () {
                                       _editAlternativeUnit(index);
                                     },
                                   ),
                                   IconButton(
-                                    icon: const Icon(
+                                    icon: Icon(
                                       Icons.delete,
                                       color: Colors.red,
+                                      size: isSmallScreen ? 18 : 20,
+                                    ),
+                                    padding: EdgeInsets.all(
+                                      isSmallScreen ? 4 : 8,
+                                    ),
+                                    constraints: BoxConstraints(
+                                      minWidth: isSmallScreen ? 32 : 40,
+                                      minHeight: isSmallScreen ? 32 : 40,
                                     ),
                                     onPressed: () {
                                       setState(() {
@@ -1251,7 +1419,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 24),
+              SizedBox(height: isSmallScreen ? 16 : 24),
 
               // ── Tombol Simpan ─────────────────────────────────────────
               SizedBox(
@@ -1261,23 +1429,32 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blue,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    padding: EdgeInsets.symmetric(
+                      vertical: isSmallScreen ? 12 : 16,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
                   child: isSaving
-                      ? const CircularProgressIndicator(color: Colors.white)
+                      ? SizedBox(
+                          height: isSmallScreen ? 20 : 24,
+                          width: isSmallScreen ? 20 : 24,
+                          child: const CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
                       : Text(
                           isEdit ? 'Update Produk' : 'Simpan Produk',
                           style: GoogleFonts.poppins(
-                            fontSize: 16,
+                            fontSize: isSmallScreen ? 14 : 16,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                 ),
               ),
-              const SizedBox(height: 16),
+              SizedBox(height: isSmallScreen ? 12 : 16),
             ],
           ),
         ),

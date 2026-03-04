@@ -142,6 +142,9 @@ class _StockScreenState extends State<StockScreen> {
 
     if (!mounted) return;
 
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 600;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -157,7 +160,7 @@ class _StockScreenState extends State<StockScreen> {
           builder: (context, scrollController) {
             return SingleChildScrollView(
               controller: scrollController,
-              padding: const EdgeInsets.all(20),
+              padding: EdgeInsets.all(isSmallScreen ? 16 : 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -171,16 +174,18 @@ class _StockScreenState extends State<StockScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  SizedBox(height: isSmallScreen ? 16 : 20),
 
                   // Gambar Produk
                   if (product['image_path'] != null &&
                       product['image_path'].toString().isNotEmpty)
                     Center(
                       child: Container(
-                        width: 120,
-                        height: 120,
-                        margin: const EdgeInsets.only(bottom: 16),
+                        width: isSmallScreen ? 100 : 120,
+                        height: isSmallScreen ? 100 : 120,
+                        margin: EdgeInsets.only(
+                          bottom: isSmallScreen ? 12 : 16,
+                        ),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: Colors.grey.shade300),
@@ -193,7 +198,7 @@ class _StockScreenState extends State<StockScreen> {
                             errorBuilder: (context, error, stackTrace) {
                               return Icon(
                                 Icons.inventory_2,
-                                size: 60,
+                                size: isSmallScreen ? 48 : 60,
                                 color: Colors.grey.shade400,
                               );
                             },
@@ -205,29 +210,29 @@ class _StockScreenState extends State<StockScreen> {
                   Text(
                     product['name'],
                     style: GoogleFonts.poppins(
-                      fontSize: 20,
+                      fontSize: isSmallScreen ? 18 : 20,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  SizedBox(height: isSmallScreen ? 6 : 8),
                   Text(
                     'Barcode: ${product['barcode']}',
                     style: GoogleFonts.poppins(
-                      fontSize: 14,
+                      fontSize: isSmallScreen ? 12 : 14,
                       color: Colors.grey.shade600,
                     ),
                   ),
-                  const Divider(height: 32),
+                  Divider(height: isSmallScreen ? 24 : 32),
 
                   // Satuan Dasar
                   Text(
                     'Satuan Dasar',
                     style: GoogleFonts.poppins(
-                      fontSize: 16,
+                      fontSize: isSmallScreen ? 14 : 16,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  SizedBox(height: isSmallScreen ? 8 : 12),
                   Builder(
                     builder: (context) {
                       final baseStock = (product['stock'] ?? 0.0) is int
@@ -244,7 +249,7 @@ class _StockScreenState extends State<StockScreen> {
                             ? Colors.orange.shade50
                             : Colors.blue.shade50,
                         child: Padding(
-                          padding: const EdgeInsets.all(16),
+                          padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -255,7 +260,7 @@ class _StockScreenState extends State<StockScreen> {
                                   Text(
                                     product['base_unit'],
                                     style: GoogleFonts.poppins(
-                                      fontSize: 16,
+                                      fontSize: isSmallScreen ? 14 : 16,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
@@ -266,18 +271,18 @@ class _StockScreenState extends State<StockScreen> {
                                       decimalDigits: 0,
                                     ).format(product['base_price']),
                                     style: GoogleFonts.poppins(
-                                      fontSize: 16,
+                                      fontSize: isSmallScreen ? 14 : 16,
                                       fontWeight: FontWeight.bold,
                                       color: Colors.blue.shade700,
                                     ),
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 8),
+                              SizedBox(height: isSmallScreen ? 6 : 8),
                               Text(
                                 'Stok: ${_formatStock(baseStock)} • Min: ${_formatStock(baseMinStock)}',
                                 style: GoogleFonts.poppins(
-                                  fontSize: 14,
+                                  fontSize: isSmallScreen ? 12 : 14,
                                   color: isBaseLowStock
                                       ? Colors.orange.shade700
                                       : Colors.grey.shade700,
@@ -288,9 +293,11 @@ class _StockScreenState extends State<StockScreen> {
                               ),
                               if (isBaseLowStock)
                                 Container(
-                                  margin: const EdgeInsets.only(top: 8),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
+                                  margin: EdgeInsets.only(
+                                    top: isSmallScreen ? 6 : 8,
+                                  ),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: isSmallScreen ? 6 : 8,
                                     vertical: 2,
                                   ),
                                   decoration: BoxDecoration(
@@ -300,7 +307,7 @@ class _StockScreenState extends State<StockScreen> {
                                   child: Text(
                                     'Stok Menipis',
                                     style: GoogleFonts.poppins(
-                                      fontSize: 11,
+                                      fontSize: isSmallScreen ? 10 : 11,
                                       color: Colors.orange.shade700,
                                       fontWeight: FontWeight.w600,
                                     ),
@@ -314,15 +321,15 @@ class _StockScreenState extends State<StockScreen> {
                   ),
 
                   if (units.isNotEmpty) ...[
-                    const SizedBox(height: 24),
+                    SizedBox(height: isSmallScreen ? 16 : 24),
                     Text(
                       'Satuan Alternatif',
                       style: GoogleFonts.poppins(
-                        fontSize: 16,
+                        fontSize: isSmallScreen ? 14 : 16,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    SizedBox(height: isSmallScreen ? 8 : 12),
                     ...units.map((unit) {
                       final unitImagePath = unit['image_path'];
                       final unitBarcode = unit['barcode'];
@@ -336,20 +343,22 @@ class _StockScreenState extends State<StockScreen> {
                           unitStock <= unitMinStock && unitMinStock > 0;
 
                       return Card(
-                        margin: const EdgeInsets.only(bottom: 8),
+                        margin: EdgeInsets.only(bottom: isSmallScreen ? 6 : 8),
                         color: isLowStock
                             ? Colors.orange.shade50
                             : Colors.white,
                         child: Padding(
-                          padding: const EdgeInsets.all(16),
+                          padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
                           child: Row(
                             children: [
                               if (unitImagePath != null &&
                                   unitImagePath.toString().isNotEmpty)
                                 Container(
-                                  width: 50,
-                                  height: 50,
-                                  margin: const EdgeInsets.only(right: 12),
+                                  width: isSmallScreen ? 40 : 50,
+                                  height: isSmallScreen ? 40 : 50,
+                                  margin: EdgeInsets.only(
+                                    right: isSmallScreen ? 8 : 12,
+                                  ),
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(
@@ -365,6 +374,7 @@ class _StockScreenState extends State<StockScreen> {
                                           (context, error, stackTrace) {
                                             return Icon(
                                               Icons.inventory_2,
+                                              size: isSmallScreen ? 20 : 24,
                                               color: Colors.grey.shade400,
                                             );
                                           },
@@ -378,7 +388,7 @@ class _StockScreenState extends State<StockScreen> {
                                     Text(
                                       unit['unit_name'],
                                       style: GoogleFonts.poppins(
-                                        fontSize: 16,
+                                        fontSize: isSmallScreen ? 14 : 16,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
@@ -387,11 +397,11 @@ class _StockScreenState extends State<StockScreen> {
                                       Text(
                                         'Barcode: $unitBarcode',
                                         style: GoogleFonts.poppins(
-                                          fontSize: 12,
+                                          fontSize: isSmallScreen ? 10 : 12,
                                           color: Colors.grey.shade600,
                                         ),
                                       ),
-                                    const SizedBox(height: 4),
+                                    SizedBox(height: isSmallScreen ? 2 : 4),
                                     Text(
                                       NumberFormat.currency(
                                         locale: 'id',
@@ -399,16 +409,16 @@ class _StockScreenState extends State<StockScreen> {
                                         decimalDigits: 0,
                                       ).format(unit['price']),
                                       style: GoogleFonts.poppins(
-                                        fontSize: 15,
+                                        fontSize: isSmallScreen ? 13 : 15,
                                         fontWeight: FontWeight.bold,
                                         color: Colors.green.shade700,
                                       ),
                                     ),
-                                    const SizedBox(height: 4),
+                                    SizedBox(height: isSmallScreen ? 2 : 4),
                                     Text(
                                       'Stok: ${_formatStock(unitStock)} • Min: ${_formatStock(unitMinStock)}',
                                       style: GoogleFonts.poppins(
-                                        fontSize: 13,
+                                        fontSize: isSmallScreen ? 11 : 13,
                                         color: isLowStock
                                             ? Colors.orange.shade700
                                             : Colors.grey.shade600,
@@ -419,9 +429,11 @@ class _StockScreenState extends State<StockScreen> {
                                     ),
                                     if (isLowStock)
                                       Container(
-                                        margin: const EdgeInsets.only(top: 4),
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
+                                        margin: EdgeInsets.only(
+                                          top: isSmallScreen ? 2 : 4,
+                                        ),
+                                        padding: EdgeInsets.symmetric(
+                                          horizontal: isSmallScreen ? 6 : 8,
                                           vertical: 2,
                                         ),
                                         decoration: BoxDecoration(
@@ -433,7 +445,7 @@ class _StockScreenState extends State<StockScreen> {
                                         child: Text(
                                           'Stok Menipis',
                                           style: GoogleFonts.poppins(
-                                            fontSize: 11,
+                                            fontSize: isSmallScreen ? 9 : 11,
                                             color: Colors.orange.shade700,
                                             fontWeight: FontWeight.w600,
                                           ),
@@ -449,51 +461,106 @@ class _StockScreenState extends State<StockScreen> {
                     }),
                   ],
 
-                  const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () async {
-                            Navigator.pop(context);
-                            final result = await Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                    AddProductScreen(product: product),
+                  SizedBox(height: isSmallScreen ? 16 : 24),
+                  isSmallScreen
+                      ? Column(
+                          children: [
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: () async {
+                                  Navigator.pop(context);
+                                  final result = await Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          AddProductScreen(product: product),
+                                    ),
+                                  );
+                                  if (result == true) {
+                                    _loadProducts();
+                                  }
+                                },
+                                icon: const Icon(Icons.edit, size: 18),
+                                label: const Text('Edit Produk'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                ),
                               ),
-                            );
-                            if (result == true) {
-                              _loadProducts();
-                            }
-                          },
-                          icon: const Icon(Icons.edit),
-                          label: const Text('Edit'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
+                            ),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  _deleteProduct(product['id']);
+                                },
+                                icon: const Icon(Icons.delete, size: 18),
+                                label: const Text('Hapus Produk'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () async {
+                                  Navigator.pop(context);
+                                  final result = await Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          AddProductScreen(product: product),
+                                    ),
+                                  );
+                                  if (result == true) {
+                                    _loadProducts();
+                                  }
+                                },
+                                icon: const Icon(Icons.edit),
+                                label: const Text('Edit'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  _deleteProduct(product['id']);
+                                },
+                                icon: const Icon(Icons.delete),
+                                label: const Text('Hapus'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            _deleteProduct(product['id']);
-                          },
-                          icon: const Icon(Icons.delete),
-                          label: const Text('Hapus'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
                 ],
               ),
             );
@@ -548,6 +615,10 @@ class _StockScreenState extends State<StockScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 600;
+    final isMediumScreen = screenWidth >= 600 && screenWidth < 900;
+
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
@@ -557,6 +628,7 @@ class _StockScreenState extends State<StockScreen> {
           style: GoogleFonts.poppins(
             fontWeight: FontWeight.w600,
             color: Colors.black,
+            fontSize: isSmallScreen ? 16 : 18,
           ),
         ),
         backgroundColor: Colors.transparent,
@@ -575,26 +647,31 @@ class _StockScreenState extends State<StockScreen> {
         children: [
           // Search & Filter
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
             color: Colors.white,
             child: Column(
               children: [
                 TextField(
                   controller: searchController,
+                  style: TextStyle(fontSize: isSmallScreen ? 13 : 14),
                   decoration: InputDecoration(
                     hintText: 'Cari produk...',
-                    prefixIcon: const Icon(Icons.search),
+                    hintStyle: TextStyle(fontSize: isSmallScreen ? 13 : 14),
+                    prefixIcon: Icon(
+                      Icons.search,
+                      size: isSmallScreen ? 20 : 24,
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: isSmallScreen ? 12 : 16,
+                      vertical: isSmallScreen ? 10 : 12,
                     ),
                   ),
                   onChanged: (value) => _applyFilters(),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: isSmallScreen ? 8 : 12),
                 Row(
                   children: [
                     FilterChip(
@@ -603,15 +680,17 @@ class _StockScreenState extends State<StockScreen> {
                         children: [
                           Icon(
                             Icons.warning_amber_rounded,
-                            size: 16,
+                            size: isSmallScreen ? 14 : 16,
                             color: showLowStockOnly
                                 ? Colors.orange.shade700
                                 : Colors.grey,
                           ),
-                          const SizedBox(width: 4),
+                          SizedBox(width: isSmallScreen ? 2 : 4),
                           Text(
                             'Stok Menipis',
-                            style: GoogleFonts.poppins(fontSize: 13),
+                            style: GoogleFonts.poppins(
+                              fontSize: isSmallScreen ? 11 : 13,
+                            ),
                           ),
                         ],
                       ),
@@ -629,7 +708,7 @@ class _StockScreenState extends State<StockScreen> {
                     Text(
                       '${filteredProducts.length} produk',
                       style: GoogleFonts.poppins(
-                        fontSize: 13,
+                        fontSize: isSmallScreen ? 11 : 13,
                         fontWeight: FontWeight.w600,
                         color: Colors.grey.shade600,
                       ),
@@ -651,14 +730,14 @@ class _StockScreenState extends State<StockScreen> {
                       children: [
                         Icon(
                           Icons.inventory_2_outlined,
-                          size: 80,
+                          size: isSmallScreen ? 60 : 80,
                           color: Colors.grey.shade300,
                         ),
-                        const SizedBox(height: 16),
+                        SizedBox(height: isSmallScreen ? 12 : 16),
                         Text(
                           'Belum ada produk',
                           style: GoogleFonts.poppins(
-                            fontSize: 16,
+                            fontSize: isSmallScreen ? 14 : 16,
                             color: Colors.grey.shade600,
                           ),
                         ),
@@ -668,7 +747,7 @@ class _StockScreenState extends State<StockScreen> {
                 : RefreshIndicator(
                     onRefresh: _loadProducts,
                     child: ListView.builder(
-                      padding: const EdgeInsets.all(16),
+                      padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
                       itemCount: filteredProducts.length,
                       itemBuilder: (context, index) {
                         final product = filteredProducts[index];
@@ -689,7 +768,9 @@ class _StockScreenState extends State<StockScreen> {
 
                             return Card(
                               elevation: 2,
-                              margin: const EdgeInsets.only(bottom: 12),
+                              margin: EdgeInsets.only(
+                                bottom: isSmallScreen ? 8 : 12,
+                              ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -697,12 +778,14 @@ class _StockScreenState extends State<StockScreen> {
                                 onTap: () => _showProductDetails(product),
                                 borderRadius: BorderRadius.circular(12),
                                 child: Padding(
-                                  padding: const EdgeInsets.all(16),
+                                  padding: EdgeInsets.all(
+                                    isSmallScreen ? 12 : 16,
+                                  ),
                                   child: Row(
                                     children: [
                                       Container(
-                                        width: 50,
-                                        height: 50,
+                                        width: isSmallScreen ? 40 : 50,
+                                        height: isSmallScreen ? 40 : 50,
                                         decoration: BoxDecoration(
                                           color: hasAnyLowStock
                                               ? Colors.orange.shade100
@@ -733,6 +816,9 @@ class _StockScreenState extends State<StockScreen> {
                                                       ) {
                                                         return Icon(
                                                           Icons.inventory_2,
+                                                          size: isSmallScreen
+                                                              ? 20
+                                                              : 24,
                                                           color: hasAnyLowStock
                                                               ? Colors
                                                                     .orange
@@ -746,12 +832,13 @@ class _StockScreenState extends State<StockScreen> {
                                               )
                                             : Icon(
                                                 Icons.inventory_2,
+                                                size: isSmallScreen ? 20 : 24,
                                                 color: hasAnyLowStock
                                                     ? Colors.orange.shade700
                                                     : Colors.blue.shade700,
                                               ),
                                       ),
-                                      const SizedBox(width: 16),
+                                      SizedBox(width: isSmallScreen ? 12 : 16),
                                       Expanded(
                                         child: Column(
                                           crossAxisAlignment:
@@ -760,28 +847,39 @@ class _StockScreenState extends State<StockScreen> {
                                             Text(
                                               product['name'],
                                               style: GoogleFonts.poppins(
-                                                fontSize: 15,
+                                                fontSize: isSmallScreen
+                                                    ? 13
+                                                    : 15,
                                                 fontWeight: FontWeight.w600,
                                               ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
                                             ),
-                                            const SizedBox(height: 4),
+                                            SizedBox(
+                                              height: isSmallScreen ? 2 : 4,
+                                            ),
                                             Text(
                                               '${_formatStock(stock)} ${product['base_unit']} • ${NumberFormat.currency(locale: 'id', symbol: 'Rp ', decimalDigits: 0).format(product['base_price'])}',
                                               style: GoogleFonts.poppins(
-                                                fontSize: 13,
+                                                fontSize: isSmallScreen
+                                                    ? 11
+                                                    : 13,
                                                 color: Colors.grey.shade600,
                                               ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
                                             ),
                                             if (hasAnyLowStock)
                                               Container(
-                                                margin: const EdgeInsets.only(
-                                                  top: 4,
+                                                margin: EdgeInsets.only(
+                                                  top: isSmallScreen ? 2 : 4,
                                                 ),
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 2,
-                                                    ),
+                                                padding: EdgeInsets.symmetric(
+                                                  horizontal: isSmallScreen
+                                                      ? 6
+                                                      : 8,
+                                                  vertical: 2,
+                                                ),
                                                 decoration: BoxDecoration(
                                                   color: Colors.orange.shade100,
                                                   borderRadius:
@@ -790,7 +888,9 @@ class _StockScreenState extends State<StockScreen> {
                                                 child: Text(
                                                   'Stok Menipis',
                                                   style: GoogleFonts.poppins(
-                                                    fontSize: 11,
+                                                    fontSize: isSmallScreen
+                                                        ? 9
+                                                        : 11,
                                                     color:
                                                         Colors.orange.shade700,
                                                     fontWeight: FontWeight.w600,
@@ -802,6 +902,7 @@ class _StockScreenState extends State<StockScreen> {
                                       ),
                                       Icon(
                                         Icons.chevron_right,
+                                        size: isSmallScreen ? 20 : 24,
                                         color: Colors.grey.shade400,
                                       ),
                                     ],
@@ -817,21 +918,40 @@ class _StockScreenState extends State<StockScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-          final result = await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const AddProductScreen()),
-          );
-          if (result == true) {
-            _loadProducts();
-          }
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('Tambah Produk'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
-      ),
+      floatingActionButton: isSmallScreen
+          ? FloatingActionButton(
+              onPressed: () async {
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const AddProductScreen(),
+                  ),
+                );
+                if (result == true) {
+                  _loadProducts();
+                }
+              },
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+              child: const Icon(Icons.add),
+            )
+          : FloatingActionButton.extended(
+              onPressed: () async {
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const AddProductScreen(),
+                  ),
+                );
+                if (result == true) {
+                  _loadProducts();
+                }
+              },
+              icon: const Icon(Icons.add),
+              label: const Text('Tambah Produk'),
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+            ),
     );
   }
 }
